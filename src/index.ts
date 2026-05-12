@@ -398,7 +398,11 @@ async function main(): Promise<void> {
 				return;
 			}
 
-			res.status(405).send('Method not allowed');
+			if (req.method === 'GET') {
+  res.status(200).json({ name: 'whoop-mcp-server', version: '1.0.0' });
+  return;
+}
+res.status(405).send('Method not allowed');
 		});
 
 		app.get('/sse', (_req: Request, res: Response) => {
