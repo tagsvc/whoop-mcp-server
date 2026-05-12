@@ -364,6 +364,22 @@ async function main(): Promise<void> {
 			res.json({ status: 'ok', authenticated: Boolean(db.getTokens()) });
 		});
 
+		app.get('/.well-known/oauth-protected-resource', (_req: Request, res: Response) => {
+			res.status(200).json({});
+		});
+
+		app.get('/.well-known/oauth-protected-resource/mcp', (_req: Request, res: Response) => {
+			res.status(200).json({});
+		});
+
+		app.get('/.well-known/oauth-authorization-server', (_req: Request, res: Response) => {
+			res.status(200).json({});
+		});
+
+		app.post('/register', (_req: Request, res: Response) => {
+			res.status(200).json({});
+		});
+
 		app.all('/mcp', async (req: Request, res: Response) => {
 			const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
@@ -372,6 +388,11 @@ async function main(): Promise<void> {
 				await session.transport.close();
 				transports.delete(sessionId);
 				res.status(200).send('Session closed');
+				return;
+			}
+
+			if (req.method === 'GET') {
+				res.status(200).json({ name: 'whoop-mcp-server', version: '1.0.0' });
 				return;
 			}
 
@@ -398,11 +419,7 @@ async function main(): Promise<void> {
 				return;
 			}
 
-			if (req.method === 'GET') {
-  res.status(200).json({ name: 'whoop-mcp-server', version: '1.0.0' });
-  return;
-}
-res.status(405).send('Method not allowed');
+			res.status(405).send('Method not allowed');
 		});
 
 		app.get('/sse', (_req: Request, res: Response) => {
