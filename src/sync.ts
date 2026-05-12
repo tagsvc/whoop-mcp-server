@@ -6,6 +6,8 @@ interface SyncStats {
 	recoveries: number;
 	sleeps: number;
 	workouts: number;
+	profile: boolean;
+	body_measurement: boolean;
 }
 
 interface SmartSyncResult {
@@ -26,21 +28,39 @@ export class WhoopSync {
 		const endDate = new Date();
 		const startDate = new Date();
 		startDate.setDate(startDate.getDate() - days);
-
 		const start = startDate.toISOString();
 		const end = endDate.toISOString();
 
-		const [cycles, recoveries, sleeps, workouts] = await Promise.all([
+		const [cycles, recoveries, sleeps, workouts, profileResult, measurementResult] = await Promise.allSettled([
 			this.client.getAllCycles({ start, end }),
 			this.client.getAllRecoveries({ start, end }),
 			this.client.getAllSleeps({ start, end }),
 			this.client.getAllWorkouts({ start, end }),
+			this.client.getProfile(),
+			this.client.getBodyMeasurement(),
 		]);
 
-		if (cycles.length > 0) this.db.upsertCycles(cycles);
-		if (recoveries.length > 0) this.db.upsertRecoveries(recoveries);
-		if (sleeps.length > 0) this.db.upsertSleeps(sleeps);
-		if (workouts.length > 0) this.db.upsertWorkouts(workouts);
+		const cyclesData = cycles.status === 'fulfilled' ? cycles.value : [];
+		const recoveriesData = recoveries.status === 'fulfilled' ? recoveries.value : [];
+		const sleepsData = sleeps.status === 'fulfilled' ? sleeps.value : [];
+		const workoutsData = workouts.status === 'fulfilled' ? workouts.value : [];
+
+		if (cyclesData.length > 0) this.db.upsertCycles(cyclesData);
+		if (recoveriesData.length > 0) this.db.upsertRecoveries(recoveriesData);
+		if (sleepsData.length > 0) this.db.upsertSleeps(sleepsData);
+		if (workoutsData.length > 0) this.db.upsertWorkouts(workoutsData);
+
+		let profileSynced = false;
+		if (profileResult.status === 'fulfilled') {
+			this.db.upsertProfile(profileResult.value);
+			profileSynced = true;
+		}
+
+		let measurementSynced = false;
+		if (measurementResult.status === 'fulfilled') {
+			this.db.upsertBodyMeasurement(measurementResult.value);
+			measurementSynced = true;
+		}
 
 		this.db.updateSyncState(
 			startDate.toISOString().split('T')[0],
@@ -48,10 +68,12 @@ export class WhoopSync {
 		);
 
 		return {
-			cycles: cycles.length,
-			recoveries: recoveries.length,
-			sleeps: sleeps.length,
-			workouts: workouts.length,
+			cycles: cyclesData.length,
+			recoveries: recoveriesData.length,
+			sleeps: sleepsData.length,
+			workouts: workoutsData.length,
+			profile: profileSynced,
+			body_measurement: measurementSynced,
 		};
 	}
 
@@ -62,7 +84,6 @@ export class WhoopSync {
 	needsFullSync(): boolean {
 		const state = this.db.getSyncState();
 		if (!state.lastSyncAt) return true;
-
 		const lastSync = new Date(state.lastSyncAt);
 		const hoursSinceSync = (Date.now() - lastSync.getTime()) / (1000 * 60 * 60);
 		return hoursSinceSync > 24;
@@ -70,19 +91,15 @@ export class WhoopSync {
 
 	async smartSync(): Promise<SmartSyncResult> {
 		const state = this.db.getSyncState();
-
 		if (!state.lastSyncAt) {
 			const stats = await this.syncDays(90);
 			return { type: 'full', stats };
 		}
-
 		const lastSync = new Date(state.lastSyncAt);
 		const hoursSinceSync = (Date.now() - lastSync.getTime()) / (1000 * 60 * 60);
-
 		if (hoursSinceSync < 1) {
 			return { type: 'skip' };
 		}
-
 		const stats = await this.quickSync();
 		return { type: 'quick', stats };
 	}
