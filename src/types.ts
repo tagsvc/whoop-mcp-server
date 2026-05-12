@@ -139,6 +139,7 @@ export interface DbRecovery {
 	hrv_rmssd: number | null;
 	spo2: number | null;
 	skin_temp: number | null;
+	user_calibrating: number | null;
 	synced_at: string;
 }
 
@@ -155,6 +156,9 @@ export interface DbSleep {
 	total_light_milli: number | null;
 	total_deep_milli: number | null;
 	total_rem_milli: number | null;
+	total_no_data_milli: number | null;
+	sleep_cycle_count: number | null;
+	disturbance_count: number | null;
 	sleep_performance: number | null;
 	sleep_efficiency: number | null;
 	sleep_consistency: number | null;
@@ -162,6 +166,7 @@ export interface DbSleep {
 	sleep_needed_baseline_milli: number | null;
 	sleep_needed_debt_milli: number | null;
 	sleep_needed_strain_milli: number | null;
+	sleep_needed_nap_milli: number | null;
 	synced_at: string;
 }
 
@@ -176,11 +181,29 @@ export interface DbWorkout {
 	avg_hr: number | null;
 	max_hr: number | null;
 	kilojoule: number | null;
+	percent_recorded: number | null;
 	zone_zero_milli: number | null;
 	zone_one_milli: number | null;
 	zone_two_milli: number | null;
 	zone_three_milli: number | null;
 	zone_four_milli: number | null;
 	zone_five_milli: number | null;
+	synced_at: string;
+}
+
+export interface DbProfile {
+	id: number;
+	user_id: number;
+	email: string;
+	first_name: string;
+	last_name: string;
+	synced_at: string;
+}
+
+export interface DbBodyMeasurement {
+	id: number;
+	height_meter: number;
+	weight_kilogram: number;
+	max_heart_rate: number;
 	synced_at: string;
 }
