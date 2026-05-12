@@ -12,7 +12,9 @@ interface ToolArguments {
 	days?: number;
 	full?: boolean;
 	id?: string | number;
+	cycle_id?: number;
 	limit?: number;
+	confirm?: boolean;
 }
 
 const config = {
@@ -54,115 +56,50 @@ function cleanupStaleSessions(): void {
 
 setInterval(cleanupStaleSessions, 5 * 60 * 1000);
 
-// Sport ID to name mapping. Whoop does not publish a complete list.
-// Source: community-maintained from patloeber.com and observed workouts.
-const SPORT_NAMES: Record<number, string> = {
+// Fallback sport ID map. The v2 API returns sport_name directly on records;
+// this map is only used when sport_name is missing (older synced records).
+const SPORT_NAMES_FALLBACK: Record<number, string> = {
 	[-1]: 'Activity',
 	0: 'Running',
 	1: 'Cycling',
 	16: 'Baseball',
 	17: 'Basketball',
 	18: 'Rowing',
-	19: 'Fencing',
-	20: 'Field Hockey',
-	21: 'Football',
 	22: 'Golf',
 	24: 'Ice Hockey',
-	25: 'Lacrosse',
-	27: 'Rugby',
-	28: 'Sailing',
-	29: 'Skiing',
 	30: 'Soccer',
-	31: 'Softball',
-	32: 'Squash',
 	33: 'Swimming',
 	34: 'Tennis',
-	35: 'Track and Field',
-	36: 'Volleyball',
-	37: 'Water Polo',
-	38: 'Wrestling',
 	39: 'Boxing',
-	42: 'Dance',
 	43: 'Pilates',
 	44: 'Yoga',
 	45: 'Weightlifting',
-	47: 'Cross Country Skiing',
 	48: 'Functional Fitness',
-	49: 'Duathlon',
-	51: 'Gymnastics',
 	52: 'Hiking',
-	53: 'Horseback Riding',
-	55: 'Kayaking',
 	56: 'Martial Arts',
-	57: 'Mountain Biking',
-	59: 'Powerlifting',
 	60: 'Rock Climbing',
-	61: 'Paddleboarding',
 	62: 'Triathlon',
 	63: 'Walking',
-	64: 'Surfing',
-	65: 'Elliptical',
 	66: 'Stairmaster',
 	70: 'Meditation',
 	71: 'Other',
-	73: 'Diving',
-	74: 'Operations - Tactical',
-	75: 'Operations - Medical',
-	76: 'Operations - Flying',
-	77: 'Operations - Water',
-	82: 'Ultimate',
-	83: 'Climber',
-	84: 'Jumping Rope',
-	85: 'Australian Football',
-	86: 'Skateboarding',
-	87: 'Coaching',
-	88: 'Ice Bath',
-	89: 'Commuting',
-	90: 'Gaming',
-	91: 'Snowboarding',
-	92: 'Motocross',
-	93: 'Caddying',
-	94: 'Obstacle Course Racing',
 	95: 'Box Fitness',
 	96: 'HIIT',
 	97: 'Spin',
 	98: 'Jiu Jitsu',
-	99: 'Manual Labor',
-	100: 'Cricket',
 	101: 'Pickleball',
-	102: 'Inline Skating',
-	103: 'Box Lacrosse',
-	104: 'Spikeball',
-	105: 'Wheelchair Pushing',
-	106: 'Paddle Tennis',
-	107: 'Barre',
-	108: 'Stage Performance',
-	109: 'High Stress Work',
-	110: 'Parkour',
-	111: 'Gaelic Football',
-	112: 'Hurling/Camogie',
-	113: 'Circus Arts',
-	121: 'Massage Therapy',
 	123: 'Strength Trainer',
-	125: 'Watching Sports',
 	126: 'Assault Bike',
 	127: 'Kickboxing',
 	128: 'Stretching',
-	230: 'Table Tennis',
-	231: 'Badminton',
-	232: 'Netball',
 	233: 'Sauna',
-	234: 'Disc Golf',
-	235: 'Yard Work',
-	236: 'Air Compression',
-	237: 'Percussive Massage',
-	238: 'Paintball',
-	239: 'Ice Skating',
-	240: 'Handball',
 };
 
-function sportName(id: number): string {
-	return SPORT_NAMES[id] ?? `Sport ID ${id}`;
+function sportLabel(w: { sport_id: number; sport_name: string | null }): string {
+	if (w.sport_name) {
+		return w.sport_name.charAt(0).toUpperCase() + w.sport_name.slice(1).replace(/_/g, ' ');
+	}
+	return SPORT_NAMES_FALLBACK[w.sport_id] ?? `Sport ID ${w.sport_id}`;
 }
 
 function formatDuration(millis: number | null): string {
@@ -199,6 +136,14 @@ function metersToFeetInches(meters: number): string {
 
 function kilogramsToPounds(kg: number): number {
 	return Math.round(kg * 2.20462 * 10) / 10;
+}
+
+function metersToMiles(m: number): number {
+	return Math.round((m / 1609.344) * 100) / 100;
+}
+
+function metersToFeet(m: number): number {
+	return Math.round(m * 3.28084);
 }
 
 function getRecoveryZone(score: number): string {
@@ -240,7 +185,7 @@ function workoutDurationMs(startTime: string, endTime: string): number {
 
 function createMcpServer(): Server {
 	const server = new Server(
-		{ name: 'whoop-mcp-server', version: '2.0.0' },
+		{ name: 'whoop-mcp-server', version: '3.0.0' },
 		{ capabilities: { tools: {} } }
 	);
 
@@ -280,7 +225,7 @@ function createMcpServer(): Server {
 			},
 			{
 				name: 'get_workouts',
-				description: 'List workouts in a date range with sport, duration, strain, heart rate, calories, and zone breakdown.',
+				description: 'List workouts in a date range with sport, duration, strain, heart rate, calories, distance, and zone breakdown.',
 				inputSchema: {
 					type: 'object',
 					properties: {
@@ -292,7 +237,7 @@ function createMcpServer(): Server {
 			},
 			{
 				name: 'get_workout_detail',
-				description: 'Get a single workout by ID with full zone time, percent recorded, and full metric breakdown.',
+				description: 'Get a single workout by ID with full zone time, percent recorded, distance, altitude, and full metric breakdown.',
 				inputSchema: {
 					type: 'object',
 					properties: { id: { type: 'string', description: 'Workout UUID' } },
@@ -315,6 +260,24 @@ function createMcpServer(): Server {
 					type: 'object',
 					properties: { id: { type: 'string', description: 'Sleep UUID' } },
 					required: ['id'],
+				},
+			},
+			{
+				name: 'get_sleep_for_cycle',
+				description: 'Get the sleep linked to a specific cycle by cycle ID.',
+				inputSchema: {
+					type: 'object',
+					properties: { cycle_id: { type: 'number', description: 'Cycle ID' } },
+					required: ['cycle_id'],
+				},
+			},
+			{
+				name: 'get_recovery_for_cycle',
+				description: 'Get the recovery linked to a specific cycle by cycle ID.',
+				inputSchema: {
+					type: 'object',
+					properties: { cycle_id: { type: 'number', description: 'Cycle ID' } },
+					required: ['cycle_id'],
 				},
 			},
 			{
@@ -341,6 +304,17 @@ function createMcpServer(): Server {
 				description: 'Get the Whoop authorization URL to connect your account.',
 				inputSchema: { type: 'object', properties: {}, required: [] },
 			},
+			{
+				name: 'revoke_access',
+				description: 'Revoke the Whoop OAuth access token and clear all stored tokens. Requires explicit confirmation.',
+				inputSchema: {
+					type: 'object',
+					properties: {
+						confirm: { type: 'boolean', description: 'Must be set to true to confirm revocation. Defaults to false.' },
+					},
+					required: ['confirm'],
+				},
+			},
 		],
 	}));
 
@@ -352,6 +326,7 @@ function createMcpServer(): Server {
 			const dataTools = [
 				'get_today', 'get_recovery_trends', 'get_sleep_analysis', 'get_strain_history',
 				'get_workouts', 'get_workout_detail', 'get_cycle_detail', 'get_sleep_detail',
+				'get_sleep_for_cycle', 'get_recovery_for_cycle',
 				'get_profile', 'get_body_measurement',
 			];
 			if (dataTools.includes(name)) {
@@ -493,18 +468,29 @@ function createMcpServer(): Server {
 						return { content: [{ type: 'text', text: `No workouts in the last ${days} days.` }] };
 					}
 
-					let response = `# Workouts (Last ${days} Days, showing ${workouts.length})\n\n`;
-					response += '| Date | Sport | Duration | Strain | Avg HR | Max HR | Calories |\n|------|-------|----------|--------|--------|--------|----------|\n';
+					const hasDistance = workouts.some(w => w.distance_meter && w.distance_meter > 0);
 
-					for (const w of workouts) {
-						const duration = formatDuration(workoutDurationMs(w.start_time, w.end_time));
-						const calories = w.kilojoule ? Math.round(w.kilojoule / 4.184).toLocaleString() : 'N/A';
-						response += `| ${formatDate(w.start_time)} | ${sportName(w.sport_id)} | ${duration} | ${w.strain?.toFixed(1) ?? 'N/A'} | ${w.avg_hr ?? 'N/A'} | ${w.max_hr ?? 'N/A'} | ${calories} kcal |\n`;
+					let response = `# Workouts (Last ${days} Days, showing ${workouts.length})\n\n`;
+					if (hasDistance) {
+						response += '| Date | Sport | Duration | Strain | Avg HR | Max HR | Distance | Calories |\n|------|-------|----------|--------|--------|--------|----------|----------|\n';
+						for (const w of workouts) {
+							const duration = formatDuration(workoutDurationMs(w.start_time, w.end_time));
+							const calories = w.kilojoule ? Math.round(w.kilojoule / 4.184).toLocaleString() : 'N/A';
+							const distance = w.distance_meter ? `${metersToMiles(w.distance_meter)} mi` : '-';
+							response += `| ${formatDate(w.start_time)} | ${sportLabel(w)} | ${duration} | ${w.strain?.toFixed(1) ?? 'N/A'} | ${w.avg_hr ?? 'N/A'} | ${w.max_hr ?? 'N/A'} | ${distance} | ${calories} kcal |\n`;
+						}
+					} else {
+						response += '| Date | Sport | Duration | Strain | Avg HR | Max HR | Calories |\n|------|-------|----------|--------|--------|--------|----------|\n';
+						for (const w of workouts) {
+							const duration = formatDuration(workoutDurationMs(w.start_time, w.end_time));
+							const calories = w.kilojoule ? Math.round(w.kilojoule / 4.184).toLocaleString() : 'N/A';
+							response += `| ${formatDate(w.start_time)} | ${sportLabel(w)} | ${duration} | ${w.strain?.toFixed(1) ?? 'N/A'} | ${w.avg_hr ?? 'N/A'} | ${w.max_hr ?? 'N/A'} | ${calories} kcal |\n`;
+						}
 					}
 
 					const sportCounts: Record<string, number> = {};
 					for (const w of workouts) {
-						const sport = sportName(w.sport_id);
+						const sport = sportLabel(w);
 						sportCounts[sport] = (sportCounts[sport] ?? 0) + 1;
 					}
 					const topSports = Object.entries(sportCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
@@ -517,12 +503,16 @@ function createMcpServer(): Server {
 					const totalStrain = workouts.reduce((sum, w) => sum + (w.strain || 0), 0);
 					const totalCalories = workouts.reduce((sum, w) => sum + (w.kilojoule ? w.kilojoule / 4.184 : 0), 0);
 					const totalDurationMs = workouts.reduce((sum, w) => sum + workoutDurationMs(w.start_time, w.end_time), 0);
+					const totalDistance = workouts.reduce((sum, w) => sum + (w.distance_meter ?? 0), 0);
 
 					response += `\n## Totals\n`;
 					response += `- **Workouts**: ${workouts.length}\n`;
 					response += `- **Total Duration**: ${formatDuration(totalDurationMs)}\n`;
 					response += `- **Total Strain**: ${totalStrain.toFixed(1)}\n`;
 					response += `- **Total Calories**: ${Math.round(totalCalories).toLocaleString()} kcal\n`;
+					if (totalDistance > 0) {
+						response += `- **Total Distance**: ${metersToMiles(totalDistance).toFixed(2)} mi\n`;
+					}
 
 					return { content: [{ type: 'text', text: response }] };
 				}
@@ -540,7 +530,7 @@ function createMcpServer(): Server {
 					const duration = workoutDurationMs(w.start_time, w.end_time);
 					const calories = w.kilojoule ? Math.round(w.kilojoule / 4.184) : null;
 
-					let response = `# Workout Detail: ${sportName(w.sport_id)}\n\n`;
+					let response = `# Workout Detail: ${sportLabel(w)}\n\n`;
 					response += `- **Start**: ${formatDateTime(w.start_time)}\n`;
 					response += `- **End**: ${formatDateTime(w.end_time)}\n`;
 					response += `- **Duration**: ${formatDuration(duration)}\n`;
@@ -548,6 +538,16 @@ function createMcpServer(): Server {
 					response += `- **Avg HR**: ${w.avg_hr ?? 'N/A'} bpm\n`;
 					response += `- **Max HR**: ${w.max_hr ?? 'N/A'} bpm\n`;
 					if (calories) response += `- **Calories**: ${calories.toLocaleString()} kcal\n`;
+					if (w.distance_meter && w.distance_meter > 0) {
+						response += `- **Distance**: ${metersToMiles(w.distance_meter).toFixed(2)} mi (${w.distance_meter.toFixed(0)} m)\n`;
+					}
+					if (w.altitude_gain_meter !== null && w.altitude_gain_meter > 0) {
+						response += `- **Altitude Gain**: ${metersToFeet(w.altitude_gain_meter).toLocaleString()} ft (${w.altitude_gain_meter.toFixed(0)} m)\n`;
+					}
+					if (w.altitude_change_meter !== null && w.altitude_change_meter !== 0) {
+						const direction = w.altitude_change_meter > 0 ? '+' : '';
+						response += `- **Altitude Change**: ${direction}${metersToFeet(w.altitude_change_meter).toLocaleString()} ft\n`;
+					}
 					if (w.percent_recorded !== null) response += `- **Data Coverage**: ${w.percent_recorded.toFixed(0)}%\n`;
 					response += `- **Score State**: ${w.score_state}\n\n`;
 
@@ -595,47 +595,42 @@ function createMcpServer(): Server {
 						return { content: [{ type: 'text', text: `Sleep ${id} not found in local database. Try running sync_data.` }] };
 					}
 
-					const totalSleep = (s.total_in_bed_milli ?? 0) - (s.total_awake_milli ?? 0);
+					return { content: [{ type: 'text', text: renderSleepDetail(s) }] };
+				}
 
-					let response = `# Sleep Detail${s.is_nap ? ' (Nap)' : ''}\n\n`;
-					response += `## Timing\n`;
-					response += `- **Sleep Onset**: ${formatDateTime(s.start_time)}\n`;
-					response += `- **Wake Time**: ${formatDateTime(s.end_time)}\n`;
-					response += `- **Time in Bed**: ${formatDuration(s.total_in_bed_milli)}\n`;
-					response += `- **Time Asleep**: ${formatDuration(totalSleep)}\n`;
-					response += `- **Time Awake**: ${formatDuration(s.total_awake_milli)}\n`;
-					if (s.total_no_data_milli) response += `- **No Data**: ${formatDuration(s.total_no_data_milli)}\n`;
-					response += `\n`;
-
-					response += `## Stages\n`;
-					response += `- **Light**: ${formatDuration(s.total_light_milli)}\n`;
-					response += `- **Deep (Slow Wave)**: ${formatDuration(s.total_deep_milli)}\n`;
-					response += `- **REM**: ${formatDuration(s.total_rem_milli)}\n`;
-					if (s.sleep_cycle_count !== null) response += `- **Sleep Cycles**: ${s.sleep_cycle_count}\n`;
-					if (s.disturbance_count !== null) response += `- **Disturbances**: ${s.disturbance_count}\n`;
-					response += `\n`;
-
-					response += `## Scores\n`;
-					response += `- **Performance**: ${s.sleep_performance?.toFixed(0) ?? 'N/A'}%\n`;
-					response += `- **Efficiency**: ${s.sleep_efficiency?.toFixed(0) ?? 'N/A'}%\n`;
-					response += `- **Consistency**: ${s.sleep_consistency?.toFixed(0) ?? 'N/A'}%\n`;
-					if (s.respiratory_rate) response += `- **Respiratory Rate**: ${s.respiratory_rate.toFixed(1)} breaths/min\n`;
-					response += `\n`;
-
-					if (s.sleep_needed_baseline_milli !== null) {
-						const baseline = s.sleep_needed_baseline_milli ?? 0;
-						const debt = s.sleep_needed_debt_milli ?? 0;
-						const strain = s.sleep_needed_strain_milli ?? 0;
-						const nap = s.sleep_needed_nap_milli ?? 0;
-						const totalNeeded = baseline + debt + strain - nap;
-
-						response += `## Sleep Need\n`;
-						response += `- **Baseline**: ${formatDuration(baseline)}\n`;
-						response += `- **Debt**: ${formatDuration(debt)}\n`;
-						response += `- **Strain-driven**: ${formatDuration(strain)}\n`;
-						if (nap) response += `- **Nap credit**: -${formatDuration(nap)}\n`;
-						response += `- **Total Needed**: ${formatDuration(totalNeeded)}\n`;
+				case 'get_sleep_for_cycle': {
+					const cycleId = Number(typedArgs.cycle_id);
+					if (!cycleId || Number.isNaN(cycleId)) {
+						return { content: [{ type: 'text', text: 'Cycle ID (number) is required.' }] };
 					}
+					const s = db.getSleepForCycle(cycleId);
+					if (!s) {
+						return { content: [{ type: 'text', text: `No sleep found for cycle ${cycleId}. Try running sync_data.` }] };
+					}
+
+					return { content: [{ type: 'text', text: `# Sleep for Cycle ${cycleId}\n\n` + renderSleepDetail(s) }] };
+				}
+
+				case 'get_recovery_for_cycle': {
+					const cycleId = Number(typedArgs.cycle_id);
+					if (!cycleId || Number.isNaN(cycleId)) {
+						return { content: [{ type: 'text', text: 'Cycle ID (number) is required.' }] };
+					}
+					const r = db.getRecoveryForCycle(cycleId);
+					if (!r) {
+						return { content: [{ type: 'text', text: `No recovery found for cycle ${cycleId}. Try running sync_data.` }] };
+					}
+
+					let response = `# Recovery for Cycle ${cycleId}\n\n`;
+					response += `- **Recovery Score**: ${r.recovery_score ?? 'N/A'}% ${r.recovery_score ? getRecoveryZone(r.recovery_score) : ''}\n`;
+					response += `- **HRV (RMSSD)**: ${r.hrv_rmssd?.toFixed(1) ?? 'N/A'} ms\n`;
+					response += `- **Resting HR**: ${r.resting_hr ?? 'N/A'} bpm\n`;
+					if (r.spo2 !== null) response += `- **SpO2**: ${r.spo2?.toFixed(1)}%\n`;
+					if (r.skin_temp !== null) response += `- **Skin Temp**: ${r.skin_temp?.toFixed(1)}°C\n`;
+					if (r.user_calibrating === 1) response += `- **Status**: User calibrating\n`;
+					response += `- **Score State**: ${r.score_state}\n`;
+					response += `- **Created**: ${formatDateTime(r.created_at)}\n`;
+					response += `- **Linked Sleep**: ${r.sleep_id}\n`;
 
 					return { content: [{ type: 'text', text: response }] };
 				}
@@ -709,6 +704,44 @@ function createMcpServer(): Server {
 					};
 				}
 
+				case 'revoke_access': {
+					if (!typedArgs.confirm) {
+						return {
+							content: [{
+								type: 'text',
+								text: 'This will revoke your Whoop OAuth access and clear all stored tokens. Re-authorization will be required to use the server again. To proceed, call this tool with confirm: true.',
+							}],
+						};
+					}
+
+					const tokens = db.getTokens();
+					if (!tokens) {
+						return { content: [{ type: 'text', text: 'No active tokens to revoke.' }] };
+					}
+
+					client.setTokens(tokens);
+					try {
+						await client.revokeAccess();
+						db.clearTokens();
+						return {
+							content: [{
+								type: 'text',
+								text: 'Access revoked successfully. All tokens cleared. Use get_auth_url to re-authorize.',
+							}],
+						};
+					} catch (err) {
+						// Even if Whoop rejects the revoke (token already expired etc), clear local state
+						db.clearTokens();
+						const message = err instanceof Error ? err.message : 'Unknown error';
+						return {
+							content: [{
+								type: 'text',
+								text: `Local tokens cleared. Remote revoke response: ${message}. Use get_auth_url to re-authorize.`,
+							}],
+						};
+					}
+				}
+
 				default:
 					throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
 			}
@@ -719,6 +752,52 @@ function createMcpServer(): Server {
 	});
 
 	return server;
+}
+
+function renderSleepDetail(s: import('./types.js').DbSleep): string {
+	const totalSleep = (s.total_in_bed_milli ?? 0) - (s.total_awake_milli ?? 0);
+
+	let response = `# Sleep Detail${s.is_nap ? ' (Nap)' : ''}\n\n`;
+	response += `## Timing\n`;
+	response += `- **Sleep Onset**: ${formatDateTime(s.start_time)}\n`;
+	response += `- **Wake Time**: ${formatDateTime(s.end_time)}\n`;
+	response += `- **Time in Bed**: ${formatDuration(s.total_in_bed_milli)}\n`;
+	response += `- **Time Asleep**: ${formatDuration(totalSleep)}\n`;
+	response += `- **Time Awake**: ${formatDuration(s.total_awake_milli)}\n`;
+	if (s.total_no_data_milli) response += `- **No Data**: ${formatDuration(s.total_no_data_milli)}\n`;
+	response += `\n`;
+
+	response += `## Stages\n`;
+	response += `- **Light**: ${formatDuration(s.total_light_milli)}\n`;
+	response += `- **Deep (Slow Wave)**: ${formatDuration(s.total_deep_milli)}\n`;
+	response += `- **REM**: ${formatDuration(s.total_rem_milli)}\n`;
+	if (s.sleep_cycle_count !== null) response += `- **Sleep Cycles**: ${s.sleep_cycle_count}\n`;
+	if (s.disturbance_count !== null) response += `- **Disturbances**: ${s.disturbance_count}\n`;
+	response += `\n`;
+
+	response += `## Scores\n`;
+	response += `- **Performance**: ${s.sleep_performance?.toFixed(0) ?? 'N/A'}%\n`;
+	response += `- **Efficiency**: ${s.sleep_efficiency?.toFixed(0) ?? 'N/A'}%\n`;
+	response += `- **Consistency**: ${s.sleep_consistency?.toFixed(0) ?? 'N/A'}%\n`;
+	if (s.respiratory_rate) response += `- **Respiratory Rate**: ${s.respiratory_rate.toFixed(1)} breaths/min\n`;
+	response += `\n`;
+
+	if (s.sleep_needed_baseline_milli !== null) {
+		const baseline = s.sleep_needed_baseline_milli ?? 0;
+		const debt = s.sleep_needed_debt_milli ?? 0;
+		const strain = s.sleep_needed_strain_milli ?? 0;
+		const nap = s.sleep_needed_nap_milli ?? 0;
+		const totalNeeded = baseline + debt + strain - nap;
+
+		response += `## Sleep Need\n`;
+		response += `- **Baseline**: ${formatDuration(baseline)}\n`;
+		response += `- **Debt**: ${formatDuration(debt)}\n`;
+		response += `- **Strain-driven**: ${formatDuration(strain)}\n`;
+		if (nap) response += `- **Nap credit**: -${formatDuration(nap)}\n`;
+		response += `- **Total Needed**: ${formatDuration(totalNeeded)}\n`;
+	}
+
+	return response;
 }
 
 async function main(): Promise<void> {
@@ -783,7 +862,7 @@ async function main(): Promise<void> {
 			}
 
 			if (req.method === 'GET') {
-				res.status(200).json({ name: 'whoop-mcp-server', version: '2.0.0' });
+				res.status(200).json({ name: 'whoop-mcp-server', version: '3.0.0' });
 				return;
 			}
 
