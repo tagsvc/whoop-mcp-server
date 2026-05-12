@@ -3,6 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { CallToolRequestSchema, ListToolsRequestSchema, ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import express, { type Request, type Response } from 'express';
+import { randomUUID } from 'node:crypto';
 import { WhoopClient } from './whoop-client.js';
 import { WhoopDatabase } from './database.js';
 import { WhoopSync } from './sync.js';
@@ -404,15 +405,17 @@ async function main(): Promise<void> {
 					session.lastAccess = Date.now();
 					transport = session.transport;
 				} else {
+					const newSessionId = randomUUID();
 					transport = new StreamableHTTPServerTransport({
-						sessionIdGenerator: () => crypto.randomUUID(),
-						onsessioninitialized: newSessionId => {
-							transports.set(newSessionId, { transport, lastAccess: Date.now() });
+						sessionIdGenerator: () => newSessionId,
+						onsessioninitialized: (id) => {
+							transports.set(id, { transport, lastAccess: Date.now() });
 						},
 					});
 
 					const server = createMcpServer();
 					await server.connect(transport);
+					transports.set(newSessionId, { transport, lastAccess: Date.now() });
 				}
 
 				await transport.handleRequest(req, res);
