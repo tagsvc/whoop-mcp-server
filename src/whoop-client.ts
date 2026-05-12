@@ -44,6 +44,10 @@ export class WhoopClient {
 		this.tokens = tokens;
 	}
 
+	clearTokens(): void {
+		this.tokens = null;
+	}
+
 	getAuthorizationUrl(scopes: string[]): string {
 		const params = new URLSearchParams({
 			client_id: this.clientId,
@@ -113,7 +117,7 @@ export class WhoopClient {
 		this.onTokenRefresh?.(this.tokens);
 	}
 
-	private async request<T>(path: string, params?: Record<string, string>): Promise<T> {
+	private async request<T>(path: string, params?: Record<string, string>, method: 'GET' | 'DELETE' = 'GET'): Promise<T> {
 		if (!this.tokens) {
 			throw new Error('Not authenticated');
 		}
@@ -130,11 +134,16 @@ export class WhoopClient {
 		}
 
 		const response = await fetch(url.toString(), {
+			method,
 			headers: { Authorization: `Bearer ${this.tokens.access_token}` },
 		});
 
 		if (!response.ok) {
 			throw new Error(`API request failed: ${response.status} ${await response.text()}`);
+		}
+
+		if (method === 'DELETE' || response.status === 204) {
+			return undefined as T;
 		}
 
 		return response.json() as Promise<T>;
@@ -146,6 +155,11 @@ export class WhoopClient {
 
 	async getBodyMeasurement(): Promise<WhoopBodyMeasurement> {
 		return this.request<WhoopBodyMeasurement>('/v2/user/measurement/body');
+	}
+
+	async revokeAccess(): Promise<void> {
+		await this.request<void>('/v2/user/access', undefined, 'DELETE');
+		this.clearTokens();
 	}
 
 	async getCycles(params?: PaginationParams): Promise<WhoopPaginatedResponse<WhoopCycle>> {
