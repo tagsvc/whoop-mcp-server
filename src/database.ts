@@ -137,6 +137,7 @@ export class WhoopDatabase {
 				id TEXT PRIMARY KEY,
 				user_id INTEGER NOT NULL,
 				sport_id INTEGER NOT NULL,
+				sport_name TEXT,
 				start_time TEXT NOT NULL,
 				end_time TEXT NOT NULL,
 				score_state TEXT NOT NULL,
@@ -145,6 +146,9 @@ export class WhoopDatabase {
 				max_hr INTEGER,
 				kilojoule REAL,
 				percent_recorded REAL,
+				distance_meter REAL,
+				altitude_gain_meter REAL,
+				altitude_change_meter REAL,
 				zone_zero_milli INTEGER,
 				zone_one_milli INTEGER,
 				zone_two_milli INTEGER,
@@ -173,7 +177,9 @@ export class WhoopDatabase {
 
 			CREATE INDEX IF NOT EXISTS idx_cycles_start ON cycles(start_time);
 			CREATE INDEX IF NOT EXISTS idx_recovery_created ON recovery(created_at);
+			CREATE INDEX IF NOT EXISTS idx_recovery_sleep ON recovery(sleep_id);
 			CREATE INDEX IF NOT EXISTS idx_sleep_start ON sleep(start_time);
+			CREATE INDEX IF NOT EXISTS idx_sleep_cycle ON sleep(cycle_id);
 			CREATE INDEX IF NOT EXISTS idx_workouts_start ON workouts(start_time);
 			CREATE INDEX IF NOT EXISTS idx_workouts_sport ON workouts(sport_id);
 
@@ -201,6 +207,18 @@ export class WhoopDatabase {
 		const workoutColNames = new Set(workoutCols.map(c => c.name));
 		if (!workoutColNames.has('percent_recorded')) {
 			this.db.exec('ALTER TABLE workouts ADD COLUMN percent_recorded REAL');
+		}
+		if (!workoutColNames.has('sport_name')) {
+			this.db.exec('ALTER TABLE workouts ADD COLUMN sport_name TEXT');
+		}
+		if (!workoutColNames.has('distance_meter')) {
+			this.db.exec('ALTER TABLE workouts ADD COLUMN distance_meter REAL');
+		}
+		if (!workoutColNames.has('altitude_gain_meter')) {
+			this.db.exec('ALTER TABLE workouts ADD COLUMN altitude_gain_meter REAL');
+		}
+		if (!workoutColNames.has('altitude_change_meter')) {
+			this.db.exec('ALTER TABLE workouts ADD COLUMN altitude_change_meter REAL');
 		}
 
 		const recoveryCols = this.db.prepare("PRAGMA table_info(recovery)").all() as { name: string }[];
@@ -237,6 +255,24 @@ export class WhoopDatabase {
 			refresh_token: refreshToken,
 			expires_at: row.expires_at,
 		};
+	}
+
+	clearTokens(): void {
+		this.db.prepare('DELETE FROM tokens WHERE id = 1').run();
+	}
+
+	clearAllData(): void {
+		this.db.exec(`
+			DELETE FROM tokens;
+			DELETE FROM sync_state;
+			DELETE FROM cycles;
+			DELETE FROM recovery;
+			DELETE FROM sleep;
+			DELETE FROM workouts;
+			DELETE FROM profile;
+			DELETE FROM body_measurement;
+			INSERT OR IGNORE INTO sync_state (id) VALUES (1);
+		`);
 	}
 
 	getSyncState(): { lastSyncAt: string | null; oldestDate: string | null; newestDate: string | null } {
@@ -319,12 +355,12 @@ export class WhoopDatabase {
 	upsertSleeps(sleeps: WhoopSleep[]): void {
 		const stmt = this.db.prepare(`
 			INSERT OR REPLACE INTO sleep (
-				id, user_id, start_time, end_time, is_nap, score_state,
+				id, user_id, cycle_id, start_time, end_time, is_nap, score_state,
 				total_in_bed_milli, total_awake_milli, total_light_milli, total_deep_milli, total_rem_milli,
 				total_no_data_milli, sleep_cycle_count, disturbance_count,
 				sleep_performance, sleep_efficiency, sleep_consistency, respiratory_rate,
 				sleep_needed_baseline_milli, sleep_needed_debt_milli, sleep_needed_strain_milli, sleep_needed_nap_milli, synced_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		`);
 
 		const insertMany = this.db.transaction((items: WhoopSleep[]) => {
@@ -332,6 +368,7 @@ export class WhoopDatabase {
 				stmt.run(
 					s.id,
 					s.user_id,
+					s.cycle_id ?? null,
 					s.start,
 					s.end,
 					s.nap ? 1 : 0,
@@ -362,19 +399,22 @@ export class WhoopDatabase {
 	upsertWorkouts(workouts: WhoopWorkout[]): void {
 		const stmt = this.db.prepare(`
 			INSERT OR REPLACE INTO workouts (
-				id, user_id, sport_id, start_time, end_time, score_state,
+				id, user_id, sport_id, sport_name, start_time, end_time, score_state,
 				strain, avg_hr, max_hr, kilojoule, percent_recorded,
+				distance_meter, altitude_gain_meter, altitude_change_meter,
 				zone_zero_milli, zone_one_milli, zone_two_milli, zone_three_milli, zone_four_milli, zone_five_milli,
 				synced_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		`);
 
 		const insertMany = this.db.transaction((items: WhoopWorkout[]) => {
 			for (const w of items) {
+				const zones = w.score?.zone_duration ?? w.score?.zone_durations;
 				stmt.run(
 					w.id,
 					w.user_id,
 					w.sport_id,
+					w.sport_name ?? null,
 					w.start,
 					w.end,
 					w.score_state,
@@ -383,12 +423,15 @@ export class WhoopDatabase {
 					w.score?.max_heart_rate ?? null,
 					w.score?.kilojoule ?? null,
 					w.score?.percent_recorded ?? null,
-					w.score?.zone_duration.zone_zero_milli ?? null,
-					w.score?.zone_duration.zone_one_milli ?? null,
-					w.score?.zone_duration.zone_two_milli ?? null,
-					w.score?.zone_duration.zone_three_milli ?? null,
-					w.score?.zone_duration.zone_four_milli ?? null,
-					w.score?.zone_duration.zone_five_milli ?? null
+					w.score?.distance_meter ?? null,
+					w.score?.altitude_gain_meter ?? null,
+					w.score?.altitude_change_meter ?? null,
+					zones?.zone_zero_milli ?? null,
+					zones?.zone_one_milli ?? null,
+					zones?.zone_two_milli ?? null,
+					zones?.zone_three_milli ?? null,
+					zones?.zone_four_milli ?? null,
+					zones?.zone_five_milli ?? null
 				);
 			}
 		});
@@ -440,6 +483,18 @@ export class WhoopDatabase {
 
 	getWorkoutById(id: string): DbWorkout | null {
 		return this.db.prepare('SELECT * FROM workouts WHERE id = ?').get(id) as DbWorkout | undefined ?? null;
+	}
+
+	getSleepForCycle(cycleId: number): DbSleep | null {
+		return this.db.prepare(`
+			SELECT * FROM sleep WHERE cycle_id = ? AND is_nap = 0 ORDER BY start_time DESC LIMIT 1
+		`).get(cycleId) as DbSleep | undefined ?? null;
+	}
+
+	getRecoveryForCycle(cycleId: number): DbRecovery | null {
+		return this.db.prepare(`
+			SELECT * FROM recovery WHERE id = ?
+		`).get(cycleId) as DbRecovery | undefined ?? null;
 	}
 
 	getCyclesByDateRange(startDate: string, endDate: string): DbCycle[] {
