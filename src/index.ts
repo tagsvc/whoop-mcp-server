@@ -56,109 +56,6 @@ function cleanupStaleSessions(): void {
 
 setInterval(cleanupStaleSessions, 5 * 60 * 1000);
 
-// Fallback sport ID map. The v2 API returns sport_name directly on records;
-// this map is only used when sport_name is missing (older synced records).
-const SPORT_NAMES_FALLBACK: Record<number, string> = {
-	[-1]: 'Activity',
-	0: 'Running',
-	1: 'Cycling',
-	16: 'Baseball',
-	17: 'Basketball',
-	18: 'Rowing',
-	22: 'Golf',
-	24: 'Ice Hockey',
-	30: 'Soccer',
-	33: 'Swimming',
-	34: 'Tennis',
-	39: 'Boxing',
-	43: 'Pilates',
-	44: 'Yoga',
-	45: 'Weightlifting',
-	48: 'Functional Fitness',
-	52: 'Hiking',
-	56: 'Martial Arts',
-	60: 'Rock Climbing',
-	62: 'Triathlon',
-	63: 'Walking',
-	66: 'Stairmaster',
-	70: 'Meditation',
-	71: 'Other',
-	95: 'Box Fitness',
-	96: 'HIIT',
-	97: 'Spin',
-	98: 'Jiu Jitsu',
-	101: 'Pickleball',
-	123: 'Strength Trainer',
-	126: 'Assault Bike',
-	127: 'Kickboxing',
-	128: 'Stretching',
-	233: 'Sauna',
-};
-
-function sportLabel(w: { sport_id: number; sport_name: string | null }): string {
-	if (w.sport_name) {
-		return w.sport_name.charAt(0).toUpperCase() + w.sport_name.slice(1).replace(/_/g, ' ');
-	}
-	return SPORT_NAMES_FALLBACK[w.sport_id] ?? `Sport ID ${w.sport_id}`;
-}
-
-function formatDuration(millis: number | null): string {
-	if (!millis) return 'N/A';
-	const hours = Math.floor(millis / 3_600_000);
-	const minutes = Math.floor((millis % 3_600_000) / 60_000);
-	return `${hours}h ${minutes}m`;
-}
-
-function formatDate(isoString: string): string {
-	return new Date(isoString).toLocaleDateString('en-US', {
-		weekday: 'short',
-		month: 'short',
-		day: 'numeric',
-	});
-}
-
-function formatDateTime(isoString: string): string {
-	return new Date(isoString).toLocaleString('en-US', {
-		month: 'short',
-		day: 'numeric',
-		year: 'numeric',
-		hour: 'numeric',
-		minute: '2-digit',
-	});
-}
-
-function metersToFeetInches(meters: number): string {
-	const totalInches = meters * 39.3701;
-	const feet = Math.floor(totalInches / 12);
-	const inches = Math.round(totalInches % 12);
-	return `${feet}' ${inches}"`;
-}
-
-function kilogramsToPounds(kg: number): number {
-	return Math.round(kg * 2.20462 * 10) / 10;
-}
-
-function metersToMiles(m: number): number {
-	return Math.round((m / 1609.344) * 100) / 100;
-}
-
-function metersToFeet(m: number): number {
-	return Math.round(m * 3.28084);
-}
-
-function getRecoveryZone(score: number): string {
-	if (score >= 67) return 'Green (Well Recovered)';
-	if (score >= 34) return 'Yellow (Moderate)';
-	return 'Red (Needs Rest)';
-}
-
-function getStrainZone(strain: number): string {
-	if (strain >= 18) return 'All Out (18-21)';
-	if (strain >= 14) return 'High (14-17)';
-	if (strain >= 10) return 'Moderate (10-13)';
-	return 'Light (0-9)';
-}
-
 function validateDays(value: unknown, defaultDays = 14): number {
 	if (value === undefined || value === null) return defaultDays;
 	const num = typeof value === 'number' ? value : Number.parseInt(String(value), 10);
@@ -179,13 +76,9 @@ function validateLimit(value: unknown, defaultLimit = 25): number {
 	return Math.min(num, 100);
 }
 
-function workoutDurationMs(startTime: string, endTime: string): number {
-	return new Date(endTime).getTime() - new Date(startTime).getTime();
-}
-
 function createMcpServer(): Server {
 	const server = new Server(
-		{ name: 'whoop-mcp-server', version: '3.0.0' },
+		{ name: 'whoop-mcp-server', version: '3.1.0' },
 		{ capabilities: { tools: {} } }
 	);
 
@@ -193,12 +86,12 @@ function createMcpServer(): Server {
 		tools: [
 			{
 				name: 'get_today',
-				description: "Get today's Whoop data including recovery score, last night's sleep, and current strain.",
+				description: "Returns raw JSON with today's full Whoop state: recovery object (cycle_id, sleep_id, score_state, recovery_score, hrv, rhr, spo2, skin_temp, user_calibrating, created_at), sleep object (id, cycle_id, start, end, all stage durations, sleep_needed breakdown, performance, efficiency, consistency, disturbances, respiratory_rate, score_state, nap), cycle object (id, start, end, strain, kilojoule, avg_hr, max_hr, score_state). All fields included, no formatting applied.",
 				inputSchema: { type: 'object', properties: {}, required: [] },
 			},
 			{
 				name: 'get_recovery_trends',
-				description: 'Get recovery score trends over time, including HRV and resting heart rate patterns.',
+				description: 'Returns raw JSON array of daily recovery records with full fields: date, recovery_score, hrv, rhr, plus metadata. Includes days_requested and record_count.',
 				inputSchema: {
 					type: 'object',
 					properties: { days: { type: 'number', description: 'Number of days to analyze (default: 14, max: 90)' } },
@@ -207,7 +100,7 @@ function createMcpServer(): Server {
 			},
 			{
 				name: 'get_sleep_analysis',
-				description: 'Get detailed sleep analysis including duration, stages, efficiency, and sleep debt.',
+				description: 'Returns raw JSON array of daily sleep records with full fields: date, total_sleep_hours, performance, efficiency, plus metadata. Includes days_requested and record_count.',
 				inputSchema: {
 					type: 'object',
 					properties: { days: { type: 'number', description: 'Number of days to analyze (default: 14, max: 90)' } },
@@ -216,7 +109,7 @@ function createMcpServer(): Server {
 			},
 			{
 				name: 'get_strain_history',
-				description: 'Get training strain history and workout data.',
+				description: 'Returns raw JSON array of daily strain records with full fields: date, strain, calories, plus metadata. Includes days_requested and record_count.',
 				inputSchema: {
 					type: 'object',
 					properties: { days: { type: 'number', description: 'Number of days to analyze (default: 14, max: 90)' } },
@@ -225,7 +118,7 @@ function createMcpServer(): Server {
 			},
 			{
 				name: 'get_workouts',
-				description: 'List workouts in a date range with sport, duration, strain, heart rate, calories, distance, and zone breakdown.',
+				description: 'Returns raw JSON array of workout records with full fields: id (UUID), sport_id, sport_name, start_time, end_time, score_state, strain, avg_hr, max_hr, kilojoule, percent_recorded, distance_meter, altitude_gain_meter, altitude_change_meter, all 6 zone_milli durations. Includes days_requested, limit_requested, record_count.',
 				inputSchema: {
 					type: 'object',
 					properties: {
@@ -237,7 +130,7 @@ function createMcpServer(): Server {
 			},
 			{
 				name: 'get_workout_detail',
-				description: 'Get a single workout by ID with full zone time, percent recorded, distance, altitude, and full metric breakdown.',
+				description: 'Returns raw JSON object for a single workout by UUID with all fields including score_state, percent_recorded, all zone durations, distance and altitude data.',
 				inputSchema: {
 					type: 'object',
 					properties: { id: { type: 'string', description: 'Workout UUID' } },
@@ -246,7 +139,7 @@ function createMcpServer(): Server {
 			},
 			{
 				name: 'get_cycle_detail',
-				description: 'Get a single physiological cycle by ID with start, end, strain, heart rate, and calories.',
+				description: 'Returns raw JSON object for a single physiological cycle by ID with all fields: start_time, end_time, score_state, strain, kilojoule, avg_hr, max_hr.',
 				inputSchema: {
 					type: 'object',
 					properties: { id: { type: 'number', description: 'Cycle ID' } },
@@ -255,7 +148,7 @@ function createMcpServer(): Server {
 			},
 			{
 				name: 'get_sleep_detail',
-				description: 'Get a single sleep record by ID with onset, wake time, stage breakdown, disturbances, debt, and consistency.',
+				description: 'Returns raw JSON object for a single sleep record by UUID with all fields: cycle_id, start_time, end_time, is_nap, score_state, all stage durations, sleep_needed breakdown, performance, efficiency, consistency, disturbance_count, respiratory_rate.',
 				inputSchema: {
 					type: 'object',
 					properties: { id: { type: 'string', description: 'Sleep UUID' } },
@@ -264,7 +157,7 @@ function createMcpServer(): Server {
 			},
 			{
 				name: 'get_sleep_for_cycle',
-				description: 'Get the sleep linked to a specific cycle by cycle ID.',
+				description: 'Returns raw JSON object for the sleep linked to a specific cycle ID, with all sleep fields.',
 				inputSchema: {
 					type: 'object',
 					properties: { cycle_id: { type: 'number', description: 'Cycle ID' } },
@@ -273,7 +166,7 @@ function createMcpServer(): Server {
 			},
 			{
 				name: 'get_recovery_for_cycle',
-				description: 'Get the recovery linked to a specific cycle by cycle ID.',
+				description: 'Returns raw JSON object for the recovery linked to a specific cycle ID, with all fields: sleep_id, score_state, recovery_score, hrv_rmssd, resting_hr, spo2, skin_temp, user_calibrating, created_at.',
 				inputSchema: {
 					type: 'object',
 					properties: { cycle_id: { type: 'number', description: 'Cycle ID' } },
@@ -282,17 +175,17 @@ function createMcpServer(): Server {
 			},
 			{
 				name: 'get_profile',
-				description: 'Get the authenticated user profile: name, email, and user ID.',
+				description: 'Returns raw JSON object for the authenticated user profile: user_id, email, first_name, last_name, synced_at.',
 				inputSchema: { type: 'object', properties: {}, required: [] },
 			},
 			{
 				name: 'get_body_measurement',
-				description: 'Get body measurements: height, weight, and max heart rate baseline.',
+				description: 'Returns raw JSON object: height_meter, weight_kilogram, max_heart_rate, synced_at. Imperial conversions handled by the consuming agent.',
 				inputSchema: { type: 'object', properties: {}, required: [] },
 			},
 			{
 				name: 'sync_data',
-				description: 'Manually trigger a data sync from Whoop.',
+				description: 'Triggers a Whoop data sync. Returns raw JSON with status (complete or skipped), full_sync flag, and stats object (cycles, recoveries, sleeps, workouts, profile, body_measurement counts).',
 				inputSchema: {
 					type: 'object',
 					properties: { full: { type: 'boolean', description: 'Force a full 90-day sync (default: false)' } },
@@ -349,43 +242,19 @@ function createMcpServer(): Server {
 					const cycle = db.getLatestCycle();
 
 					if (!recovery && !sleep && !cycle) {
-						return { content: [{ type: 'text', text: 'No data available. Try running sync_data first.' }] };
+						return { content: [{ type: 'text', text: JSON.stringify({ error: 'No data available. Try running sync_data first.' }) }] };
 					}
 
-					let response = "# Today's Whoop Summary\n\n";
-
-					if (recovery) {
-						response += `## Recovery: ${recovery.recovery_score ?? 'N/A'}% ${recovery.recovery_score ? getRecoveryZone(recovery.recovery_score) : ''}\n`;
-						response += `- **HRV**: ${recovery.hrv_rmssd?.toFixed(1) ?? 'N/A'} ms\n`;
-						response += `- **Resting HR**: ${recovery.resting_hr ?? 'N/A'} bpm\n`;
-						if (recovery.spo2) response += `- **SpO2**: ${recovery.spo2.toFixed(1)}%\n`;
-						if (recovery.skin_temp) response += `- **Skin Temp**: ${recovery.skin_temp.toFixed(1)}°C\n`;
-						if (recovery.user_calibrating === 1) response += `- **Status**: User calibrating (baseline not yet established)\n`;
-						response += '\n';
-					}
-
-					if (sleep) {
-						const totalSleep = (sleep.total_in_bed_milli ?? 0) - (sleep.total_awake_milli ?? 0);
-						response += `## Last Night's Sleep\n`;
-						response += `- **Total Sleep**: ${formatDuration(totalSleep)}\n`;
-						response += `- **Performance**: ${sleep.sleep_performance?.toFixed(0) ?? 'N/A'}%\n`;
-						response += `- **Efficiency**: ${sleep.sleep_efficiency?.toFixed(0) ?? 'N/A'}%\n`;
-						response += `- **Stages**: Light ${formatDuration(sleep.total_light_milli)}, Deep ${formatDuration(sleep.total_deep_milli)}, REM ${formatDuration(sleep.total_rem_milli)}\n`;
-						if (sleep.disturbance_count !== null) response += `- **Disturbances**: ${sleep.disturbance_count}\n`;
-						if (sleep.sleep_cycle_count !== null) response += `- **Sleep Cycles**: ${sleep.sleep_cycle_count}\n`;
-						if (sleep.respiratory_rate) response += `- **Respiratory Rate**: ${sleep.respiratory_rate.toFixed(1)} breaths/min\n`;
-						response += '\n';
-					}
-
-					if (cycle) {
-						response += `## Current Strain\n`;
-						response += `- **Day Strain**: ${cycle.strain?.toFixed(1) ?? 'N/A'} ${cycle.strain ? getStrainZone(cycle.strain) : ''}\n`;
-						if (cycle.kilojoule) response += `- **Calories**: ${Math.round(cycle.kilojoule / 4.184).toLocaleString()} kcal\n`;
-						if (cycle.avg_hr) response += `- **Avg HR**: ${cycle.avg_hr} bpm\n`;
-						if (cycle.max_hr) response += `- **Max HR**: ${cycle.max_hr} bpm\n`;
-					}
-
-					return { content: [{ type: 'text', text: response }] };
+					return {
+						content: [{
+							type: 'text',
+							text: JSON.stringify({
+								recovery,
+								sleep,
+								cycle,
+							}, null, 2),
+						}],
+					};
 				}
 
 				case 'get_recovery_trends': {
@@ -393,23 +262,19 @@ function createMcpServer(): Server {
 					const trends = db.getRecoveryTrends(days);
 
 					if (trends.length === 0) {
-						return { content: [{ type: 'text', text: 'No recovery data available for the requested period.' }] };
+						return { content: [{ type: 'text', text: JSON.stringify({ error: 'No recovery data available for the requested period.', days }) }] };
 					}
 
-					let response = `# Recovery Trends (Last ${days} Days)\n\n`;
-					response += '| Date | Recovery | HRV | RHR |\n|------|----------|-----|-----|\n';
-
-					for (const day of trends) {
-						response += `| ${formatDate(day.date)} | ${day.recovery_score}% | ${day.hrv?.toFixed(1) ?? 'N/A'} ms | ${day.rhr ?? 'N/A'} bpm |\n`;
-					}
-
-					const avgRecovery = trends.reduce((sum, d) => sum + (d.recovery_score || 0), 0) / trends.length;
-					const avgHrv = trends.reduce((sum, d) => sum + (d.hrv || 0), 0) / trends.length;
-					const avgRhr = trends.reduce((sum, d) => sum + (d.rhr || 0), 0) / trends.length;
-
-					response += `\n## Averages\n- **Recovery**: ${avgRecovery.toFixed(0)}%\n- **HRV**: ${avgHrv.toFixed(1)} ms\n- **RHR**: ${avgRhr.toFixed(0)} bpm\n`;
-
-					return { content: [{ type: 'text', text: response }] };
+					return {
+						content: [{
+							type: 'text',
+							text: JSON.stringify({
+								days_requested: days,
+								record_count: trends.length,
+								records: trends,
+							}, null, 2),
+						}],
+					};
 				}
 
 				case 'get_sleep_analysis': {
@@ -417,23 +282,19 @@ function createMcpServer(): Server {
 					const trends = db.getSleepTrends(days);
 
 					if (trends.length === 0) {
-						return { content: [{ type: 'text', text: 'No sleep data available for the requested period.' }] };
+						return { content: [{ type: 'text', text: JSON.stringify({ error: 'No sleep data available for the requested period.', days }) }] };
 					}
 
-					let response = `# Sleep Analysis (Last ${days} Days)\n\n`;
-					response += '| Date | Duration | Performance | Efficiency |\n|------|----------|-------------|------------|\n';
-
-					for (const day of trends) {
-						response += `| ${formatDate(day.date)} | ${day.total_sleep_hours?.toFixed(1) ?? 'N/A'}h | ${day.performance?.toFixed(0) ?? 'N/A'}% | ${day.efficiency?.toFixed(0) ?? 'N/A'}% |\n`;
-					}
-
-					const avgDuration = trends.reduce((sum, d) => sum + (d.total_sleep_hours || 0), 0) / trends.length;
-					const avgPerf = trends.reduce((sum, d) => sum + (d.performance || 0), 0) / trends.length;
-					const avgEff = trends.reduce((sum, d) => sum + (d.efficiency || 0), 0) / trends.length;
-
-					response += `\n## Averages\n- **Duration**: ${avgDuration.toFixed(1)} hours\n- **Performance**: ${avgPerf.toFixed(0)}%\n- **Efficiency**: ${avgEff.toFixed(0)}%\n`;
-
-					return { content: [{ type: 'text', text: response }] };
+					return {
+						content: [{
+							type: 'text',
+							text: JSON.stringify({
+								days_requested: days,
+								record_count: trends.length,
+								records: trends,
+							}, null, 2),
+						}],
+					};
 				}
 
 				case 'get_strain_history': {
@@ -441,22 +302,19 @@ function createMcpServer(): Server {
 					const trends = db.getStrainTrends(days);
 
 					if (trends.length === 0) {
-						return { content: [{ type: 'text', text: 'No strain data available for the requested period.' }] };
+						return { content: [{ type: 'text', text: JSON.stringify({ error: 'No strain data available for the requested period.', days }) }] };
 					}
 
-					let response = `# Strain History (Last ${days} Days)\n\n`;
-					response += '| Date | Strain | Calories |\n|------|--------|----------|\n';
-
-					for (const day of trends) {
-						response += `| ${formatDate(day.date)} | ${day.strain?.toFixed(1) ?? 'N/A'} | ${day.calories?.toLocaleString() ?? 'N/A'} kcal |\n`;
-					}
-
-					const avgStrain = trends.reduce((sum, d) => sum + (d.strain || 0), 0) / trends.length;
-					const avgCalories = trends.reduce((sum, d) => sum + (d.calories || 0), 0) / trends.length;
-
-					response += `\n## Averages\n- **Daily Strain**: ${avgStrain.toFixed(1)}\n- **Daily Calories**: ${Math.round(avgCalories).toLocaleString()} kcal\n`;
-
-					return { content: [{ type: 'text', text: response }] };
+					return {
+						content: [{
+							type: 'text',
+							text: JSON.stringify({
+								days_requested: days,
+								record_count: trends.length,
+								records: trends,
+							}, null, 2),
+						}],
+					};
 				}
 
 				case 'get_workouts': {
@@ -465,230 +323,136 @@ function createMcpServer(): Server {
 					const workouts = db.getRecentWorkouts(days, limit);
 
 					if (workouts.length === 0) {
-						return { content: [{ type: 'text', text: `No workouts in the last ${days} days.` }] };
+						return { content: [{ type: 'text', text: JSON.stringify({ error: `No workouts in the last ${days} days.`, days, limit }) }] };
 					}
 
-					const hasDistance = workouts.some(w => w.distance_meter && w.distance_meter > 0);
-
-					let response = `# Workouts (Last ${days} Days, showing ${workouts.length})\n\n`;
-					if (hasDistance) {
-						response += '| Date | Sport | Duration | Strain | Avg HR | Max HR | Distance | Calories |\n|------|-------|----------|--------|--------|--------|----------|----------|\n';
-						for (const w of workouts) {
-							const duration = formatDuration(workoutDurationMs(w.start_time, w.end_time));
-							const calories = w.kilojoule ? Math.round(w.kilojoule / 4.184).toLocaleString() : 'N/A';
-							const distance = w.distance_meter ? `${metersToMiles(w.distance_meter)} mi` : '-';
-							response += `| ${formatDate(w.start_time)} | ${sportLabel(w)} | ${duration} | ${w.strain?.toFixed(1) ?? 'N/A'} | ${w.avg_hr ?? 'N/A'} | ${w.max_hr ?? 'N/A'} | ${distance} | ${calories} kcal |\n`;
-						}
-					} else {
-						response += '| Date | Sport | Duration | Strain | Avg HR | Max HR | Calories |\n|------|-------|----------|--------|--------|--------|----------|\n';
-						for (const w of workouts) {
-							const duration = formatDuration(workoutDurationMs(w.start_time, w.end_time));
-							const calories = w.kilojoule ? Math.round(w.kilojoule / 4.184).toLocaleString() : 'N/A';
-							response += `| ${formatDate(w.start_time)} | ${sportLabel(w)} | ${duration} | ${w.strain?.toFixed(1) ?? 'N/A'} | ${w.avg_hr ?? 'N/A'} | ${w.max_hr ?? 'N/A'} | ${calories} kcal |\n`;
-						}
-					}
-
-					const sportCounts: Record<string, number> = {};
-					for (const w of workouts) {
-						const sport = sportLabel(w);
-						sportCounts[sport] = (sportCounts[sport] ?? 0) + 1;
-					}
-					const topSports = Object.entries(sportCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
-
-					response += `\n## Top Activities\n`;
-					for (const [sport, count] of topSports) {
-						response += `- ${sport}: ${count}\n`;
-					}
-
-					const totalStrain = workouts.reduce((sum, w) => sum + (w.strain || 0), 0);
-					const totalCalories = workouts.reduce((sum, w) => sum + (w.kilojoule ? w.kilojoule / 4.184 : 0), 0);
-					const totalDurationMs = workouts.reduce((sum, w) => sum + workoutDurationMs(w.start_time, w.end_time), 0);
-					const totalDistance = workouts.reduce((sum, w) => sum + (w.distance_meter ?? 0), 0);
-
-					response += `\n## Totals\n`;
-					response += `- **Workouts**: ${workouts.length}\n`;
-					response += `- **Total Duration**: ${formatDuration(totalDurationMs)}\n`;
-					response += `- **Total Strain**: ${totalStrain.toFixed(1)}\n`;
-					response += `- **Total Calories**: ${Math.round(totalCalories).toLocaleString()} kcal\n`;
-					if (totalDistance > 0) {
-						response += `- **Total Distance**: ${metersToMiles(totalDistance).toFixed(2)} mi\n`;
-					}
-
-					return { content: [{ type: 'text', text: response }] };
+					return {
+						content: [{
+							type: 'text',
+							text: JSON.stringify({
+								days_requested: days,
+								limit_requested: limit,
+								record_count: workouts.length,
+								records: workouts,
+							}, null, 2),
+						}],
+					};
 				}
 
 				case 'get_workout_detail': {
 					const id = String(typedArgs.id ?? '');
 					if (!id) {
-						return { content: [{ type: 'text', text: 'Workout ID is required.' }] };
+						return { content: [{ type: 'text', text: JSON.stringify({ error: 'Workout ID is required.' }) }] };
 					}
 					const w = db.getWorkoutById(id);
 					if (!w) {
-						return { content: [{ type: 'text', text: `Workout ${id} not found in local database. Try running sync_data.` }] };
+						return { content: [{ type: 'text', text: JSON.stringify({ error: `Workout ${id} not found in local database. Try running sync_data.`, id }) }] };
 					}
 
-					const duration = workoutDurationMs(w.start_time, w.end_time);
-					const calories = w.kilojoule ? Math.round(w.kilojoule / 4.184) : null;
-
-					let response = `# Workout Detail: ${sportLabel(w)}\n\n`;
-					response += `- **Start**: ${formatDateTime(w.start_time)}\n`;
-					response += `- **End**: ${formatDateTime(w.end_time)}\n`;
-					response += `- **Duration**: ${formatDuration(duration)}\n`;
-					response += `- **Strain**: ${w.strain?.toFixed(1) ?? 'N/A'} ${w.strain ? getStrainZone(w.strain) : ''}\n`;
-					response += `- **Avg HR**: ${w.avg_hr ?? 'N/A'} bpm\n`;
-					response += `- **Max HR**: ${w.max_hr ?? 'N/A'} bpm\n`;
-					if (calories) response += `- **Calories**: ${calories.toLocaleString()} kcal\n`;
-					if (w.distance_meter && w.distance_meter > 0) {
-						response += `- **Distance**: ${metersToMiles(w.distance_meter).toFixed(2)} mi (${w.distance_meter.toFixed(0)} m)\n`;
-					}
-					if (w.altitude_gain_meter !== null && w.altitude_gain_meter > 0) {
-						response += `- **Altitude Gain**: ${metersToFeet(w.altitude_gain_meter).toLocaleString()} ft (${w.altitude_gain_meter.toFixed(0)} m)\n`;
-					}
-					if (w.altitude_change_meter !== null && w.altitude_change_meter !== 0) {
-						const direction = w.altitude_change_meter > 0 ? '+' : '';
-						response += `- **Altitude Change**: ${direction}${metersToFeet(w.altitude_change_meter).toLocaleString()} ft\n`;
-					}
-					if (w.percent_recorded !== null) response += `- **Data Coverage**: ${w.percent_recorded.toFixed(0)}%\n`;
-					response += `- **Score State**: ${w.score_state}\n\n`;
-
-					response += `## Heart Rate Zones\n`;
-					response += `| Zone | Range | Time |\n|------|-------|------|\n`;
-					response += `| 0 | Recovery (<50%) | ${formatDuration(w.zone_zero_milli)} |\n`;
-					response += `| 1 | Easy (50-60%) | ${formatDuration(w.zone_one_milli)} |\n`;
-					response += `| 2 | Moderate (60-70%) | ${formatDuration(w.zone_two_milli)} |\n`;
-					response += `| 3 | Hard (70-80%) | ${formatDuration(w.zone_three_milli)} |\n`;
-					response += `| 4 | Very Hard (80-90%) | ${formatDuration(w.zone_four_milli)} |\n`;
-					response += `| 5 | Max (>90%) | ${formatDuration(w.zone_five_milli)} |\n`;
-
-					return { content: [{ type: 'text', text: response }] };
+					return { content: [{ type: 'text', text: JSON.stringify(w, null, 2) }] };
 				}
 
 				case 'get_cycle_detail': {
 					const id = Number(typedArgs.id);
 					if (!id || Number.isNaN(id)) {
-						return { content: [{ type: 'text', text: 'Cycle ID (number) is required.' }] };
+						return { content: [{ type: 'text', text: JSON.stringify({ error: 'Cycle ID (number) is required.' }) }] };
 					}
 					const c = db.getCycleById(id);
 					if (!c) {
-						return { content: [{ type: 'text', text: `Cycle ${id} not found in local database. Try running sync_data.` }] };
+						return { content: [{ type: 'text', text: JSON.stringify({ error: `Cycle ${id} not found in local database. Try running sync_data.`, id }) }] };
 					}
 
-					let response = `# Cycle Detail: ${id}\n\n`;
-					response += `- **Start**: ${formatDateTime(c.start_time)}\n`;
-					response += `- **End**: ${c.end_time ? formatDateTime(c.end_time) : 'In Progress'}\n`;
-					response += `- **Day Strain**: ${c.strain?.toFixed(1) ?? 'N/A'} ${c.strain ? getStrainZone(c.strain) : ''}\n`;
-					if (c.kilojoule) response += `- **Calories**: ${Math.round(c.kilojoule / 4.184).toLocaleString()} kcal\n`;
-					response += `- **Avg HR**: ${c.avg_hr ?? 'N/A'} bpm\n`;
-					response += `- **Max HR**: ${c.max_hr ?? 'N/A'} bpm\n`;
-					response += `- **Score State**: ${c.score_state}\n`;
-
-					return { content: [{ type: 'text', text: response }] };
+					return { content: [{ type: 'text', text: JSON.stringify(c, null, 2) }] };
 				}
 
 				case 'get_sleep_detail': {
 					const id = String(typedArgs.id ?? '');
 					if (!id) {
-						return { content: [{ type: 'text', text: 'Sleep ID is required.' }] };
+						return { content: [{ type: 'text', text: JSON.stringify({ error: 'Sleep ID is required.' }) }] };
 					}
 					const s = db.getSleepById(id);
 					if (!s) {
-						return { content: [{ type: 'text', text: `Sleep ${id} not found in local database. Try running sync_data.` }] };
+						return { content: [{ type: 'text', text: JSON.stringify({ error: `Sleep ${id} not found in local database. Try running sync_data.`, id }) }] };
 					}
 
-					return { content: [{ type: 'text', text: renderSleepDetail(s) }] };
+					return { content: [{ type: 'text', text: JSON.stringify(s, null, 2) }] };
 				}
 
 				case 'get_sleep_for_cycle': {
 					const cycleId = Number(typedArgs.cycle_id);
 					if (!cycleId || Number.isNaN(cycleId)) {
-						return { content: [{ type: 'text', text: 'Cycle ID (number) is required.' }] };
+						return { content: [{ type: 'text', text: JSON.stringify({ error: 'Cycle ID (number) is required.' }) }] };
 					}
 					const s = db.getSleepForCycle(cycleId);
 					if (!s) {
-						return { content: [{ type: 'text', text: `No sleep found for cycle ${cycleId}. Try running sync_data.` }] };
+						return { content: [{ type: 'text', text: JSON.stringify({ error: `No sleep found for cycle ${cycleId}. Try running sync_data.`, cycle_id: cycleId }) }] };
 					}
 
-					return { content: [{ type: 'text', text: `# Sleep for Cycle ${cycleId}\n\n` + renderSleepDetail(s) }] };
+					return { content: [{ type: 'text', text: JSON.stringify(s, null, 2) }] };
 				}
 
 				case 'get_recovery_for_cycle': {
 					const cycleId = Number(typedArgs.cycle_id);
 					if (!cycleId || Number.isNaN(cycleId)) {
-						return { content: [{ type: 'text', text: 'Cycle ID (number) is required.' }] };
+						return { content: [{ type: 'text', text: JSON.stringify({ error: 'Cycle ID (number) is required.' }) }] };
 					}
 					const r = db.getRecoveryForCycle(cycleId);
 					if (!r) {
-						return { content: [{ type: 'text', text: `No recovery found for cycle ${cycleId}. Try running sync_data.` }] };
+						return { content: [{ type: 'text', text: JSON.stringify({ error: `No recovery found for cycle ${cycleId}. Try running sync_data.`, cycle_id: cycleId }) }] };
 					}
 
-					let response = `# Recovery for Cycle ${cycleId}\n\n`;
-					response += `- **Recovery Score**: ${r.recovery_score ?? 'N/A'}% ${r.recovery_score ? getRecoveryZone(r.recovery_score) : ''}\n`;
-					response += `- **HRV (RMSSD)**: ${r.hrv_rmssd?.toFixed(1) ?? 'N/A'} ms\n`;
-					response += `- **Resting HR**: ${r.resting_hr ?? 'N/A'} bpm\n`;
-					if (r.spo2 !== null) response += `- **SpO2**: ${r.spo2?.toFixed(1)}%\n`;
-					if (r.skin_temp !== null) response += `- **Skin Temp**: ${r.skin_temp?.toFixed(1)}°C\n`;
-					if (r.user_calibrating === 1) response += `- **Status**: User calibrating\n`;
-					response += `- **Score State**: ${r.score_state}\n`;
-					response += `- **Created**: ${formatDateTime(r.created_at)}\n`;
-					response += `- **Linked Sleep**: ${r.sleep_id}\n`;
-
-					return { content: [{ type: 'text', text: response }] };
+					return { content: [{ type: 'text', text: JSON.stringify(r, null, 2) }] };
 				}
 
 				case 'get_profile': {
 					const profile = db.getProfile();
 					if (!profile) {
-						return { content: [{ type: 'text', text: 'Profile not available. Try running sync_data.' }] };
+						return { content: [{ type: 'text', text: JSON.stringify({ error: 'Profile not available. Try running sync_data.' }) }] };
 					}
 
-					let response = `# Profile\n\n`;
-					response += `- **Name**: ${profile.first_name} ${profile.last_name}\n`;
-					response += `- **Email**: ${profile.email}\n`;
-					response += `- **User ID**: ${profile.user_id}\n`;
-					response += `- **Last Synced**: ${profile.synced_at}\n`;
-
-					return { content: [{ type: 'text', text: response }] };
+					return { content: [{ type: 'text', text: JSON.stringify(profile, null, 2) }] };
 				}
 
 				case 'get_body_measurement': {
 					const measurement = db.getBodyMeasurement();
 					if (!measurement) {
-						return { content: [{ type: 'text', text: 'Body measurement not available. Try running sync_data.' }] };
+						return { content: [{ type: 'text', text: JSON.stringify({ error: 'Body measurement not available. Try running sync_data.' }) }] };
 					}
 
-					let response = `# Body Measurement\n\n`;
-					response += `- **Height**: ${metersToFeetInches(measurement.height_meter)} (${measurement.height_meter.toFixed(2)} m)\n`;
-					response += `- **Weight**: ${kilogramsToPounds(measurement.weight_kilogram).toFixed(1)} lb (${measurement.weight_kilogram.toFixed(1)} kg)\n`;
-					response += `- **Max Heart Rate**: ${measurement.max_heart_rate} bpm\n`;
-					response += `- **Last Synced**: ${measurement.synced_at}\n`;
-
-					return { content: [{ type: 'text', text: response }] };
+					return { content: [{ type: 'text', text: JSON.stringify(measurement, null, 2) }] };
 				}
 
 				case 'sync_data': {
 					const tokens = db.getTokens();
 					if (!tokens) {
-						return { content: [{ type: 'text', text: 'Not authenticated with Whoop. Use get_auth_url to authorize first.' }] };
+						return { content: [{ type: 'text', text: JSON.stringify({ error: 'Not authenticated with Whoop. Use get_auth_url to authorize first.' }) }] };
 					}
 					client.setTokens(tokens);
 
 					const full = validateBoolean(typedArgs.full);
 					let stats;
+					let skipped = false;
 
 					if (full) {
 						stats = await sync.syncDays(90);
 					} else {
 						const result = await sync.smartSync();
 						if (result.type === 'skip') {
-							return { content: [{ type: 'text', text: 'Data is already up to date (synced within the last hour).' }] };
+							skipped = true;
+						} else {
+							stats = result.stats;
 						}
-						stats = result.stats;
 					}
 
 					return {
 						content: [{
 							type: 'text',
-							text: `Sync complete!\n- Cycles: ${stats?.cycles ?? 0}\n- Recoveries: ${stats?.recoveries ?? 0}\n- Sleeps: ${stats?.sleeps ?? 0}\n- Workouts: ${stats?.workouts ?? 0}\n- Profile: ${stats?.profile ? 'synced' : 'failed'}\n- Body Measurement: ${stats?.body_measurement ? 'synced' : 'failed'}`,
+							text: JSON.stringify({
+								status: skipped ? 'skipped' : 'complete',
+								message: skipped ? 'Data is already up to date (synced within the last hour).' : 'Sync complete',
+								full_sync: full,
+								stats: stats ?? null,
+							}, null, 2),
 						}],
 					};
 				}
@@ -752,52 +516,6 @@ function createMcpServer(): Server {
 	});
 
 	return server;
-}
-
-function renderSleepDetail(s: import('./types.js').DbSleep): string {
-	const totalSleep = (s.total_in_bed_milli ?? 0) - (s.total_awake_milli ?? 0);
-
-	let response = `# Sleep Detail${s.is_nap ? ' (Nap)' : ''}\n\n`;
-	response += `## Timing\n`;
-	response += `- **Sleep Onset**: ${formatDateTime(s.start_time)}\n`;
-	response += `- **Wake Time**: ${formatDateTime(s.end_time)}\n`;
-	response += `- **Time in Bed**: ${formatDuration(s.total_in_bed_milli)}\n`;
-	response += `- **Time Asleep**: ${formatDuration(totalSleep)}\n`;
-	response += `- **Time Awake**: ${formatDuration(s.total_awake_milli)}\n`;
-	if (s.total_no_data_milli) response += `- **No Data**: ${formatDuration(s.total_no_data_milli)}\n`;
-	response += `\n`;
-
-	response += `## Stages\n`;
-	response += `- **Light**: ${formatDuration(s.total_light_milli)}\n`;
-	response += `- **Deep (Slow Wave)**: ${formatDuration(s.total_deep_milli)}\n`;
-	response += `- **REM**: ${formatDuration(s.total_rem_milli)}\n`;
-	if (s.sleep_cycle_count !== null) response += `- **Sleep Cycles**: ${s.sleep_cycle_count}\n`;
-	if (s.disturbance_count !== null) response += `- **Disturbances**: ${s.disturbance_count}\n`;
-	response += `\n`;
-
-	response += `## Scores\n`;
-	response += `- **Performance**: ${s.sleep_performance?.toFixed(0) ?? 'N/A'}%\n`;
-	response += `- **Efficiency**: ${s.sleep_efficiency?.toFixed(0) ?? 'N/A'}%\n`;
-	response += `- **Consistency**: ${s.sleep_consistency?.toFixed(0) ?? 'N/A'}%\n`;
-	if (s.respiratory_rate) response += `- **Respiratory Rate**: ${s.respiratory_rate.toFixed(1)} breaths/min\n`;
-	response += `\n`;
-
-	if (s.sleep_needed_baseline_milli !== null) {
-		const baseline = s.sleep_needed_baseline_milli ?? 0;
-		const debt = s.sleep_needed_debt_milli ?? 0;
-		const strain = s.sleep_needed_strain_milli ?? 0;
-		const nap = s.sleep_needed_nap_milli ?? 0;
-		const totalNeeded = baseline + debt + strain - nap;
-
-		response += `## Sleep Need\n`;
-		response += `- **Baseline**: ${formatDuration(baseline)}\n`;
-		response += `- **Debt**: ${formatDuration(debt)}\n`;
-		response += `- **Strain-driven**: ${formatDuration(strain)}\n`;
-		if (nap) response += `- **Nap credit**: -${formatDuration(nap)}\n`;
-		response += `- **Total Needed**: ${formatDuration(totalNeeded)}\n`;
-	}
-
-	return response;
 }
 
 async function main(): Promise<void> {
