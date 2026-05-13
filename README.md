@@ -4,6 +4,16 @@ A Model Context Protocol (MCP) server that connects your Whoop health data to Cl
 
 Built using the [Whoop Developer API v2](https://developer.whoop.com/docs/introduction). Forked from [yuridivonis/whoop-mcp-server](https://github.com/yuridivonis/whoop-mcp-server) and extended to full v2 API parity.
 
+**Current version: 3.1.1**
+
+## Architecture
+
+**Raw JSON passthrough at every layer.** All data tools return raw structured JSON containing every field stored in the local SQLite cache. The Whoop v2 API response is captured in full at the client layer, persisted in full at the database layer, and returned in full at the tool layer. No clipping, no formatting, no filtering anywhere in the data pipeline.
+
+The MCP server does not human-render data. The consuming agent (Claude) handles all presentation, unit conversion, timezone formatting, and field selection. This design follows the analytical-MCP pattern (similar to the Garmin community MCP) rather than the conversational-MCP pattern of the original upstream fork.
+
+Available on every call: IDs (workout UUID, sleep UUID, cycle ID, recovery linkage IDs), state flags (score_state, user_calibrating, is_nap), timestamps (created_at, start_time, end_time, synced_at), data quality indicators (percent_recorded), and complete metric breakdowns (all sleep stages including awake time, full sleep_needed components, all six HR zones, distance, altitude).
+
 ## Features
 
 Recovery data: daily recovery scores, HRV, resting heart rate, SpO2, skin temperature, user calibration status.
@@ -22,25 +32,25 @@ Token management: encrypted OAuth token storage, automatic refresh, scoped acces
 
 ## MCP Tools
 
-15 tools covering the full Whoop v2 read API.
+15 tools covering the full Whoop v2 read API. All data tools return raw JSON.
 
-| Tool | Description |
+| Tool | Returns |
 | --- | --- |
-| `get_today` | Morning briefing with recovery, sleep, and strain |
-| `get_recovery_trends` | Recovery patterns over time with HRV and RHR |
-| `get_sleep_analysis` | Sleep duration, performance, and efficiency trends |
-| `get_strain_history` | Daily strain and calorie history |
-| `get_workouts` | List workouts with sport, duration, strain, distance, zones |
-| `get_workout_detail` | Single workout with full zone time and metrics |
-| `get_cycle_detail` | Single cycle with strain, heart rate, and calories |
-| `get_sleep_detail` | Single sleep with stages, debt, disturbances, consistency |
-| `get_sleep_for_cycle` | Sleep linked to a specific cycle ID |
-| `get_recovery_for_cycle` | Recovery linked to a specific cycle ID |
-| `get_profile` | Name, email, and user ID |
-| `get_body_measurement` | Height, weight, and max heart rate baseline |
-| `sync_data` | Manually trigger a data sync |
-| `get_auth_url` | Get authorization URL for Whoop connection |
-| `revoke_access` | Revoke OAuth tokens and clear local state |
+| `get_today` | Full recovery, sleep, and cycle objects for the current physiological day |
+| `get_recovery_trends` | Full DbRecovery records across requested day range |
+| `get_sleep_analysis` | Full DbSleep records across requested day range |
+| `get_strain_history` | Full DbCycle records across requested day range |
+| `get_workouts` | Full DbWorkout records across requested day range |
+| `get_workout_detail` | Single DbWorkout by UUID |
+| `get_cycle_detail` | Single DbCycle by ID |
+| `get_sleep_detail` | Single DbSleep by UUID |
+| `get_sleep_for_cycle` | DbSleep linked to specific cycle ID |
+| `get_recovery_for_cycle` | DbRecovery linked to specific cycle ID |
+| `get_profile` | DbProfile (name, email, user ID) |
+| `get_body_measurement` | DbBodyMeasurement (height, weight, max HR) |
+| `sync_data` | Sync status and record counts |
+| `get_auth_url` | OAuth authorization URL (human-readable, intentional) |
+| `revoke_access` | Token revocation confirmation (human-readable, intentional) |
 
 ## Setup
 
@@ -148,6 +158,28 @@ This fork extends the original six-tool implementation with:
 - Database schema additions: workout distance and altitude, sport name from API, sleep cycle count and disturbance count, user calibration flag, percent recorded
 - Express body parser fix that resolved a 400 error blocking the MCP handshake
 - Streamable HTTP session handling refinement
+- Raw JSON passthrough architecture (v3.1.x): removed markdown formatters from tool layer, removed narrow projections from trend query layer, server now returns complete data on every call
+
+## Version history
+
+**3.1.1** (May 13, 2026)
+- Fixed trend query clipping. `getRecoveryTrends`, `getSleepTrends`, and `getStrainTrends` now return full DbRecovery, DbSleep, and DbCycle records via `SELECT *` instead of narrow column projections.
+- Removed unused RecoveryTrendRow, SleepTrendRow, StrainTrendRow type aliases.
+- Completes the v3.1.0 raw passthrough architecture.
+
+**3.1.0** (May 13, 2026)
+- Architectural shift to raw JSON passthrough.
+- All 12 data tools return `JSON.stringify(record, null, 2)` instead of formatted markdown.
+- Removed presentation logic: formatters, unit conversions, zone classifications.
+- 282 lines removed from index.ts.
+- Server is now a pure data passthrough; consuming agent handles all presentation.
+
+**3.0.0** (May 12, 2026)
+- Forked from yuridivonis/whoop-mcp-server.
+- Extended to full Whoop v2 API parity with 15 tools.
+- SQLite persistent caching with 90-day rolling history.
+- Encrypted OAuth token storage with automatic refresh.
+- Fixed Express body parser middleware conflict with StreamableHTTPServerTransport.
 
 ## License
 
