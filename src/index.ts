@@ -78,7 +78,7 @@ function validateLimit(value: unknown, defaultLimit = 25): number {
 
 function createMcpServer(): Server {
 	const server = new Server(
-		{ name: 'whoop-mcp-server', version: '3.1.0' },
+		{ name: 'whoop-mcp-server', version: '3.1.1' },
 		{ capabilities: { tools: {} } }
 	);
 
@@ -91,7 +91,7 @@ function createMcpServer(): Server {
 			},
 			{
 				name: 'get_recovery_trends',
-				description: 'Returns raw JSON array of daily recovery records with full fields: date, recovery_score, hrv, rhr, plus metadata. Includes days_requested and record_count.',
+				description: 'Returns raw JSON array of daily recovery records with full fields: date, recovery_score, hrv_rmssd, resting_hr, spo2, skin_temp, user_calibrating, score_state, sleep_id, created_at, synced_at. Includes days_requested and record_count.',
 				inputSchema: {
 					type: 'object',
 					properties: { days: { type: 'number', description: 'Number of days to analyze (default: 14, max: 90)' } },
@@ -100,7 +100,7 @@ function createMcpServer(): Server {
 			},
 			{
 				name: 'get_sleep_analysis',
-				description: 'Returns raw JSON array of daily sleep records with full fields: date, total_sleep_hours, performance, efficiency, plus metadata. Includes days_requested and record_count.',
+				description: 'Returns raw JSON array of daily sleep records with full fields: id (UUID), cycle_id, start_time, end_time, is_nap, score_state, all stage durations (in_bed, awake, light, deep, REM, no_data), sleep_cycle_count, disturbance_count, performance, efficiency, consistency, respiratory_rate, sleep_needed breakdown (baseline, debt, strain, nap), synced_at. Includes days_requested and record_count.',
 				inputSchema: {
 					type: 'object',
 					properties: { days: { type: 'number', description: 'Number of days to analyze (default: 14, max: 90)' } },
@@ -109,7 +109,7 @@ function createMcpServer(): Server {
 			},
 			{
 				name: 'get_strain_history',
-				description: 'Returns raw JSON array of daily strain records with full fields: date, strain, calories, plus metadata. Includes days_requested and record_count.',
+				description: 'Returns raw JSON array of daily cycle records with full fields: id, user_id, start_time, end_time, score_state, strain, kilojoule, avg_hr, max_hr, synced_at. Includes days_requested and record_count.',
 				inputSchema: {
 					type: 'object',
 					properties: { days: { type: 'number', description: 'Number of days to analyze (default: 14, max: 90)' } },
