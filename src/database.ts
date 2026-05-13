@@ -31,26 +31,6 @@ interface SyncStateRow {
 	newest_synced_date: string | null;
 }
 
-interface RecoveryTrendRow {
-	date: string;
-	recovery_score: number;
-	hrv: number;
-	rhr: number;
-}
-
-interface SleepTrendRow {
-	date: string;
-	total_sleep_hours: number;
-	performance: number;
-	efficiency: number;
-}
-
-interface StrainTrendRow {
-	date: string;
-	strain: number;
-	calories: number;
-}
-
 export class WhoopDatabase {
 	private db: Database.Database;
 
@@ -531,33 +511,28 @@ export class WhoopDatabase {
 		`).all(days, limit) as DbWorkout[];
 	}
 
-	getRecoveryTrends(days: number): RecoveryTrendRow[] {
+	getRecoveryTrends(days: number): DbRecovery[] {
 		return this.db.prepare(`
-			SELECT DATE(created_at) as date, recovery_score, hrv_rmssd as hrv, resting_hr as rhr
-			FROM recovery
+			SELECT * FROM recovery
 			WHERE recovery_score IS NOT NULL AND created_at >= DATE('now', '-' || ? || ' days')
 			ORDER BY created_at DESC
-		`).all(days) as RecoveryTrendRow[];
+		`).all(days) as DbRecovery[];
 	}
 
-	getSleepTrends(days: number): SleepTrendRow[] {
+	getSleepTrends(days: number): DbSleep[] {
 		return this.db.prepare(`
-			SELECT DATE(start_time) as date,
-				ROUND((total_in_bed_milli - total_awake_milli) / 3600000.0, 2) as total_sleep_hours,
-				sleep_performance as performance, sleep_efficiency as efficiency
-			FROM sleep
+			SELECT * FROM sleep
 			WHERE is_nap = 0 AND sleep_performance IS NOT NULL AND start_time >= DATE('now', '-' || ? || ' days')
 			ORDER BY start_time DESC
-		`).all(days) as SleepTrendRow[];
+		`).all(days) as DbSleep[];
 	}
 
-	getStrainTrends(days: number): StrainTrendRow[] {
+	getStrainTrends(days: number): DbCycle[] {
 		return this.db.prepare(`
-			SELECT DATE(start_time) as date, strain, ROUND(kilojoule / 4.184, 0) as calories
-			FROM cycles
+			SELECT * FROM cycles
 			WHERE strain IS NOT NULL AND start_time >= DATE('now', '-' || ? || ' days')
 			ORDER BY start_time DESC
-		`).all(days) as StrainTrendRow[];
+		`).all(days) as DbCycle[];
 	}
 
 	close(): void {
