@@ -168,30 +168,6 @@ This fork extends the original six-tool implementation with:
 - Body buffering added to `/mcp` POST handler so the route can inspect the JSON-RPC method before deciding response path while still passing the raw body through to the transport.
 - Structured JSON logging added for `/mcp` requests and session evictions. Captures timestamps, session ID prefixes, JSON-RPC methods, action taken, active session count, and request duration. Available in Railway Deploy Logs.
 
-**3.1.2** (May 13, 2026)
-- Fixed version reporting bug. Server now sources version from `package.json` at startup via a single constant. Both the MCP handshake response and the GET `/mcp` health check now report the same accurate version.
-- Updated `package.json` metadata: version (1.0.0 → 3.1.2), author (tagsvc), repository URL (github.com/tagsvc/whoop-mcp-server). Original author retained in contributors field per MIT license.
-- Future version bumps: edit `package.json` version field only. No source code changes required.
-
-**3.1.1** (May 13, 2026)
-- Fixed trend query clipping. `getRecoveryTrends`, `getSleepTrends`, and `getStrainTrends` now return full DbRecovery, DbSleep, and DbCycle records via `SELECT *` instead of narrow column projections.
-- Removed unused RecoveryTrendRow, SleepTrendRow, StrainTrendRow type aliases.
-- Completes the v3.1.0 raw passthrough architecture.
-
-**3.1.0** (May 13, 2026)
-- Architectural shift to raw JSON passthrough.
-- All 12 data tools return `JSON.stringify(record, null, 2)` instead of formatted markdown.
-- Removed presentation logic: formatters, unit conversions, zone classifications.
-- 282 lines removed from index.ts.
-- Server is now a pure data passthrough; consuming agent handles all presentation.
-
-**3.0.0** (May 12, 2026)
-- Forked from yuridivonis/whoop-mcp-server.
-- Extended to full Whoop v2 API parity with 15 tools.
-- SQLite persistent caching with 90-day rolling history.
-- Encrypted OAuth token storage with automatic refresh.
-- Fixed Express body parser middleware conflict with StreamableHTTPServerTransport.
-
 ## License
 
 MIT. See [LICENSE](./LICENSE).
