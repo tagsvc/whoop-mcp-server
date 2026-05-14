@@ -8,7 +8,7 @@ Forked from `yuridivonis/whoop-mcp-server` (May 2026, after upstream went quiet 
 
 Owner: tagsvc. Personal use, not published to MCP registries. No upstream PR contributions planned.
 
-**Current version: 3.1.3** (single-source version, raw JSON passthrough at every layer, 24-hour session TTL)
+**Current version: 3.1.4** (single-source version, raw JSON passthrough at every layer, 24-hour session TTL, 10-minute sync freshness gate)
 
 ## Architectural philosophy
 
@@ -33,7 +33,8 @@ When adding new tools or extending existing ones, **do not introduce human-reada
   - `v3.1.0-stable` (raw JSON passthrough, tool layer only)
   - `v3.1.1-stable` (raw JSON passthrough, complete pipeline)
   - `v3.1.2-stable` (single-source version)
-  - `v3.1.3-stable` (session expiration fix, current production)
+  - `v3.1.3-stable` (session expiration fix)
+  - `v3.1.4-stable` (sync freshness gate reduced to 10 minutes, current production)
 - **Database**: SQLite at /data/whoop.db on Railway volume
 
 ## Architecture
@@ -239,7 +240,7 @@ Default behaviour expected:
 3. Check Whoop developer docs (developer.whoop.com/docs) before assuming API capabilities
 4. Test locally with `npm run dev` before pushing to Railway
 5. Never commit `.env` or token data
-6. Maintain v3.0.0-stable, v3.1.0-stable, v3.1.1-stable, v3.1.2-stable, and v3.1.3-stable tags as rollback points; do not delete
+6. Maintain v3.0.0-stable, v3.1.0-stable, v3.1.1-stable, v3.1.2-stable, v3.1.3-stable, and v3.1.4-stable tags as rollback points; do not delete
 
 Architectural rules (do not violate):
 
@@ -275,6 +276,14 @@ When troubleshooting MCP tool failures across devices, isolate client vs server 
 - 400 "Server not initialized" returned → v3.1.3 changes did not deploy; route handler still using old transport.handleRequest path
 
 ## Version history
+
+**3.1.4** (May 14, 2026)
+- Sync freshness gate reduced from 60 minutes to 10 minutes. Supports active usage patterns (GTGs, post-workout checks, BP readings) where the prior 60-minute window forced users to call `sync_data(full: true)` to bypass.
+- `SYNC_FRESHNESS_MS` extracted to a named class constant in `src/sync.ts`. Value: `10 * 60 * 1000` (10 minutes). Replaces the prior `hoursSinceSync < 1` inline check.
+- `FULL_SYNC_THRESHOLD_HOURS` extracted to a named class constant. Value: `24`. Documents the threshold at which `needsFullSync()` triggers a 90-day re-sync versus a 7-day quick sync.
+- Structured JSON logging on gate hit. Event type: `event: "sync_gate_active"` with `timestamp`, `seconds_since_last_sync`, `gate_window_seconds`, and `action: "skipped"`. Visible in Railway Deploy Logs.
+- Rate limit safety verified: 10-minute gate at theoretical maximum produces 42 API calls per hour (well under Whoop's 100/min limit). Realistic usage produces ~40-56 calls per day (0.5% of daily 10,000 ceiling).
+- Architectural addition (rule 7): Sync gates extracted to named class constants in `src/sync.ts`. Future tuning is a single-line change.
 
 **3.1.3** (May 14, 2026)
 - Session expiration fix. The `/mcp` route now handles unknown session IDs correctly and the idle session window is extended to a working day.
