@@ -1,0 +1,4 @@
+# Documentation files do not affect runtime. Skip Railway rebuilds when only these change.
+*.md
+LICENSE
+docs/
