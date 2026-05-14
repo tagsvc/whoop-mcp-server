@@ -479,7 +479,7 @@ function createMcpServer(): Server {
 							type: 'text',
 							text: JSON.stringify({
 								status: skipped ? 'skipped' : 'complete',
-								message: skipped ? 'Data is already up to date (synced within the last hour).' : 'Sync complete',
+								message: skipped ? 'Data is already up to date (synced within the last 10 minutes).' : 'Sync complete',
 								full_sync: full,
 								stats: stats ?? null,
 							}, null, 2),
