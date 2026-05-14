@@ -19,6 +19,17 @@ export class WhoopSync {
 	private readonly client: WhoopClient;
 	private readonly db: WhoopDatabase;
 
+	// Smart-sync freshness gate. If the last sync occurred within this window,
+	// smartSync() returns type:'skip' instead of hitting the Whoop API.
+	// Tuned to 10 minutes (down from 60 min in v3.1.3) to support active usage
+	// patterns like GTGs, BP readings, and post-workout checks without forcing
+	// sync_data(full:true). Well under Whoop's 100 req/min rate limit.
+	private readonly SYNC_FRESHNESS_MS = 10 * 60 * 1000;
+
+	// Full-sync threshold. If the last sync is older than this, smartSync()
+	// performs a 90-day full sync instead of the default 7-day quick sync.
+	private readonly FULL_SYNC_THRESHOLD_HOURS = 24;
+
 	constructor(client: WhoopClient, db: WhoopDatabase) {
 		this.client = client;
 		this.db = db;
@@ -86,7 +97,7 @@ export class WhoopSync {
 		if (!state.lastSyncAt) return true;
 		const lastSync = new Date(state.lastSyncAt);
 		const hoursSinceSync = (Date.now() - lastSync.getTime()) / (1000 * 60 * 60);
-		return hoursSinceSync > 24;
+		return hoursSinceSync > this.FULL_SYNC_THRESHOLD_HOURS;
 	}
 
 	async smartSync(): Promise<SmartSyncResult> {
@@ -95,11 +106,22 @@ export class WhoopSync {
 			const stats = await this.syncDays(90);
 			return { type: 'full', stats };
 		}
+
 		const lastSync = new Date(state.lastSyncAt);
-		const hoursSinceSync = (Date.now() - lastSync.getTime()) / (1000 * 60 * 60);
-		if (hoursSinceSync < 1) {
+		const msSinceSync = Date.now() - lastSync.getTime();
+
+		// Freshness gate: skip API call if last sync was within the window.
+		if (msSinceSync < this.SYNC_FRESHNESS_MS) {
+			console.log(JSON.stringify({
+				event: 'sync_gate_active',
+				timestamp: new Date().toISOString(),
+				seconds_since_last_sync: Math.floor(msSinceSync / 1000),
+				gate_window_seconds: this.SYNC_FRESHNESS_MS / 1000,
+				action: 'skipped',
+			}));
 			return { type: 'skip' };
 		}
+
 		const stats = await this.quickSync();
 		return { type: 'quick', stats };
 	}
