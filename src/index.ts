@@ -634,9 +634,13 @@ async function main(): Promise<void> {
 				}
 				const rawBody = Buffer.concat(chunks);
 
-				let parsedBody: { method?: string; id?: string | number | null } | null = null;
+				interface JsonRpcRequest {
+					method?: string;
+					id?: string | number | null;
+				}
+				let parsedBody: JsonRpcRequest | null = null;
 				try {
-					parsedBody = JSON.parse(rawBody.toString('utf8')) as typeof parsedBody;
+					parsedBody = JSON.parse(rawBody.toString('utf8')) as JsonRpcRequest;
 				} catch {
 					parsedBody = null;
 				}
