@@ -4,8 +4,6 @@ A Model Context Protocol (MCP) server that connects your Whoop health data to Cl
 
 Built using the [Whoop Developer API v2](https://developer.whoop.com/docs/introduction). Forked from [yuridivonis/whoop-mcp-server](https://github.com/yuridivonis/whoop-mcp-server) and extended to full v2 API parity.
 
-**Current version: 3.1.3**
-
 ## Architecture
 
 **Raw JSON passthrough at every layer.** All data tools return raw structured JSON containing every field stored in the local SQLite cache. The Whoop v2 API response is captured in full at the client layer, persisted in full at the database layer, and returned in full at the tool layer. No clipping, no formatting, no filtering anywhere in the data pipeline.
