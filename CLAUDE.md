@@ -8,7 +8,7 @@ Forked from `yuridivonis/whoop-mcp-server` (May 2026, after upstream went quiet 
 
 Owner: tagsvc. Personal use, not published to MCP registries. No upstream PR contributions planned.
 
-**Current version: 3.1.2** (single-source version, raw JSON passthrough at every layer)
+**Current version: 3.1.3** (single-source version, raw JSON passthrough at every layer, 24-hour session TTL)
 
 ## Architectural philosophy
 
@@ -32,7 +32,8 @@ When adding new tools or extending existing ones, **do not introduce human-reada
   - `v3.0.0-stable` (formatted markdown architecture, original design)
   - `v3.1.0-stable` (raw JSON passthrough, tool layer only)
   - `v3.1.1-stable` (raw JSON passthrough, complete pipeline)
-  - `v3.1.2-stable` (single-source version, current production)
+  - `v3.1.2-stable` (single-source version)
+  - `v3.1.3-stable` (session expiration fix, current production)
 - **Database**: SQLite at /data/whoop.db on Railway volume
 
 ## Architecture
@@ -198,12 +199,12 @@ If a deployment breaks the server:
 
 ```bash
 # Primary rollback: previous stable
-git checkout v3.1.1-stable
-git reset --hard v3.1.1-stable
+git checkout v3.1.2-stable
+git reset --hard v3.1.2-stable
 git push origin main --force
 ```
 
-Railway auto-deploys from main. Within 2-3 minutes the v3.1.1-stable state is restored.
+Railway auto-deploys from main. Within 2-3 minutes the v3.1.2-stable state is restored.
 
 If v3.1.x architecture itself appears broken (e.g. Claude unable to parse raw JSON output), fall back to v3.0.0-stable:
 
@@ -238,7 +239,7 @@ Default behaviour expected:
 3. Check Whoop developer docs (developer.whoop.com/docs) before assuming API capabilities
 4. Test locally with `npm run dev` before pushing to Railway
 5. Never commit `.env` or token data
-6. Maintain v3.0.0-stable, v3.1.0-stable, and v3.1.1-stable tags as rollback points; do not delete
+6. Maintain v3.0.0-stable, v3.1.0-stable, v3.1.1-stable, v3.1.2-stable, and v3.1.3-stable tags as rollback points; do not delete
 
 Architectural rules (do not violate):
 
@@ -247,6 +248,7 @@ Architectural rules (do not violate):
 3. **Server stores metric/UTC, agent presents imperial/local.** Do not convert in the server.
 4. **No new type aliases for narrow projections.** Use existing Db* interfaces or extend them when the schema actually grows.
 5. **Version is single-source.** Read from `package.json` only. Never hardcode version strings in source files. To bump version, edit `package.json` and nothing else.
+6. **Session handling returns 404 on unknown session for non-initialize requests.** The `/mcp` route inspects the JSON-RPC method before deciding response path. Initialize requests create new transports; tool calls with unknown sessions return HTTP 404 with JSON-RPC error code -32001. Do not call `transport.handleRequest()` on a fresh transport with a non-initialize request body — the SDK rejects this with "Server not initialized" and the 400 response does not signal recovery to clients.
 
 When asked to add features, confirm:
 - Does the Whoop API expose the data?
@@ -257,19 +259,32 @@ When asked to add features, confirm:
 
 When debugging, check in order:
 1. Railway deployment status (Active vs Crashed)
-2. Railway logs for the past hour
-3. OAuth token validity (try `get_auth_url` to test server responsiveness)
-4. Whoop API status at status.whoop.com
-5. Connector freshness in Claude (disconnect/reconnect to reload tool definitions after deploy)
-6. Cold start (first call after idle may timeout, retry)
+2. Railway Deploy Logs filtered by `event:"mcp_request"` to see /mcp request flow
+3. Railway Deploy Logs filtered by `event:"session_eviction"` to detect TTL evictions
+4. Railway HTTP Logs for status codes (200/202 healthy, 404 unknown session, 400 SDK rejection)
+5. OAuth token validity (try `get_auth_url` to test server responsiveness)
+6. Whoop API status at status.whoop.com
+7. Connector freshness in Claude (refresh tools list to reinitialize after deploy or extended outage)
+8. Cold start (first call after server restart may need refresh; subsequent calls within 24h TTL should reuse session)
 
 When troubleshooting MCP tool failures across devices, isolate client vs server first:
 - Works on one device, fails on another → client issue (try Claude Desktop update, app restart)
-- Fails on all devices → server issue (check Railway, then API)
+- Fails on all devices → server issue (check Railway logs, then API)
 - Returns markdown instead of JSON → deploy did not pick up v3.1.x changes
 - Returns truncated trend data → database.ts v3.1.1 changes did not deploy
+- 400 "Server not initialized" returned → v3.1.3 changes did not deploy; route handler still using old transport.handleRequest path
 
 ## Version history
+
+**3.1.3** (May 14, 2026)
+- Session expiration fix. The `/mcp` route now handles unknown session IDs correctly and the idle session window is extended to a working day.
+- `SESSION_TTL_MS` extended from `30 * 60 * 1000` (30 min) to `24 * 60 * 60 * 1000` (24 hours). The 30-minute window was causing observable failures during normal idle gaps. With 24 hours, sessions survive any normal day of usage. Memory cost negligible at single-user scale.
+- Unknown session ID on a non-initialize request now returns HTTP 404 with JSON-RPC error code `-32001` and message "Session not found. Please reinitialize." The old behaviour was: server created a fresh transport, then `transport.handleRequest()` rejected the tool call with the SDK's "Server not initialized" 400 error. The 400 response did not signal recovery to clients. The 404 is the MCP spec convention for "session not found, please re-handshake."
+- Body buffering: the POST `/mcp` handler now reads the raw request body into a Buffer, JSON-parses it to inspect the JSON-RPC `method` and `id` fields, then replays the buffered body to the transport via `Readable.from([rawBody])`. This enables route-level decisions (404 vs. new transport vs. reuse) based on whether the request is an `initialize` or a tool call, while preserving the streaming consumption pattern the transport expects.
+- Structured JSON logging on stdout (Railway Deploy Logs captures). Two event types:
+  - `event: "mcp_request"` per `/mcp` call with `timestamp`, `method`, `sessionIdPrefix` (first 8 chars only), `sessionKnown`, `bodyMethod`, `isInitialize`, `action` (reused_session, new_session_initialize, new_session_implicit, rejected_unknown_session, session_closed), `activeSessions`, `durationMs`, and `httpStatus` for rejected requests.
+  - `event: "session_eviction"` when the TTL cleanup loop closes idle sessions. Includes `evictedCount`, evicted session prefixes, and `remainingSessions`.
+- Architectural addition (rule 6): MCP transport state lives in an in-memory `Map`. Session loss occurs on server restart, container suspension, or our TTL eviction. Recovery behaviour is governed by client. The 404 response gives spec-compliant clients a clear signal but cannot force a non-compliant proxy (e.g., `mcp-proxy.anthropic.com` per Issue #228) to refresh transparently. Manual "Refresh tools list" remains the fallback for failures we cannot mediate from the server.
 
 **3.1.2** (May 13, 2026)
 - Single-source version: `package.json` is the canonical version field. `src/index.ts` reads it at startup via `readFileSync` and exposes it as `SERVER_VERSION` constant. Both MCP handshake and GET `/mcp` health check use the constant.
