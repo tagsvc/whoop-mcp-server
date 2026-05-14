@@ -4,7 +4,7 @@ A Model Context Protocol (MCP) server that connects your Whoop health data to Cl
 
 Built using the [Whoop Developer API v2](https://developer.whoop.com/docs/introduction). Forked from [yuridivonis/whoop-mcp-server](https://github.com/yuridivonis/whoop-mcp-server) and extended to full v2 API parity.
 
-**Current version: 3.1.1**
+**Current version: 3.1.2**
 
 ## Architecture
 
@@ -161,6 +161,11 @@ This fork extends the original six-tool implementation with:
 - Raw JSON passthrough architecture (v3.1.x): removed markdown formatters from tool layer, removed narrow projections from trend query layer, server now returns complete data on every call
 
 ## Version history
+
+**3.1.2** (May 13, 2026)
+- Fixed version reporting bug. Server now sources version from `package.json` at startup via a single constant. Both the MCP handshake response and the GET `/mcp` health check now report the same accurate version.
+- Updated `package.json` metadata: version (1.0.0 → 3.1.2), author (tagsvc), repository URL (github.com/tagsvc/whoop-mcp-server). Original author retained in contributors field per MIT license.
+- Future version bumps: edit `package.json` version field only. No source code changes required.
 
 **3.1.1** (May 13, 2026)
 - Fixed trend query clipping. `getRecoveryTrends`, `getSleepTrends`, and `getStrainTrends` now return full DbRecovery, DbSleep, and DbCycle records via `SELECT *` instead of narrow column projections.
