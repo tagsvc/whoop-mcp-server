@@ -8,7 +8,7 @@ Forked from `yuridivonis/whoop-mcp-server` (May 2026, after upstream went quiet 
 
 Owner: tagsvc. Personal use, not published to MCP registries. No upstream PR contributions planned.
 
-**Current version: 3.1.1** (raw JSON passthrough architecture, trend queries fixed)
+**Current version: 3.1.2** (single-source version, raw JSON passthrough at every layer)
 
 ## Architectural philosophy
 
@@ -31,7 +31,8 @@ When adding new tools or extending existing ones, **do not introduce human-reada
 - **Stable rollback tags**: 
   - `v3.0.0-stable` (formatted markdown architecture, original design)
   - `v3.1.0-stable` (raw JSON passthrough, tool layer only)
-  - `v3.1.1-stable` (raw JSON passthrough, complete pipeline; current production)
+  - `v3.1.1-stable` (raw JSON passthrough, complete pipeline)
+  - `v3.1.2-stable` (single-source version, current production)
 - **Database**: SQLite at /data/whoop.db on Railway volume
 
 ## Architecture
@@ -245,6 +246,7 @@ Architectural rules (do not violate):
 2. **Database queries return full rows.** Use `SELECT *`. Do not narrow projection at the SQL layer.
 3. **Server stores metric/UTC, agent presents imperial/local.** Do not convert in the server.
 4. **No new type aliases for narrow projections.** Use existing Db* interfaces or extend them when the schema actually grows.
+5. **Version is single-source.** Read from `package.json` only. Never hardcode version strings in source files. To bump version, edit `package.json` and nothing else.
 
 When asked to add features, confirm:
 - Does the Whoop API expose the data?
@@ -268,6 +270,12 @@ When troubleshooting MCP tool failures across devices, isolate client vs server 
 - Returns truncated trend data → database.ts v3.1.1 changes did not deploy
 
 ## Version history
+
+**3.1.2** (May 13, 2026)
+- Single-source version: `package.json` is the canonical version field. `src/index.ts` reads it at startup via `readFileSync` and exposes it as `SERVER_VERSION` constant. Both MCP handshake and GET `/mcp` health check use the constant.
+- Fixed GET `/mcp` health check which was hardcoded to `3.0.0` through two version bumps.
+- Updated `package.json` metadata to reflect tagsvc fork: version 3.1.2, author tagsvc, repository URL github.com/tagsvc/whoop-mcp-server. Original author (Yuri Dvoinos) retained in contributors per MIT license.
+- New version-bump workflow: edit `package.json` version field only. No source code changes for routine version bumps.
 
 **3.1.1** (May 13, 2026)
 - Fixed trend query clipping at database layer
