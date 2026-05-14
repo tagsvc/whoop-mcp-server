@@ -4,9 +4,22 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { CallToolRequestSchema, ListToolsRequestSchema, ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import express, { type Request, type Response } from 'express';
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { WhoopClient } from './whoop-client.js';
 import { WhoopDatabase } from './database.js';
 import { WhoopSync } from './sync.js';
+
+// Single source of truth for server identity. Reads package.json at startup.
+// To bump version, edit package.json only. Do not hardcode version strings.
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const packageJson = JSON.parse(
+	readFileSync(join(__dirname, '..', 'package.json'), 'utf8')
+) as { name: string; version: string };
+const SERVER_NAME = packageJson.name;
+const SERVER_VERSION = packageJson.version;
 
 interface ToolArguments {
 	days?: number;
@@ -78,7 +91,7 @@ function validateLimit(value: unknown, defaultLimit = 25): number {
 
 function createMcpServer(): Server {
 	const server = new Server(
-		{ name: 'whoop-mcp-server', version: '3.1.1' },
+		{ name: SERVER_NAME, version: SERVER_VERSION },
 		{ capabilities: { tools: {} } }
 	);
 
@@ -580,7 +593,7 @@ async function main(): Promise<void> {
 			}
 
 			if (req.method === 'GET') {
-				res.status(200).json({ name: 'whoop-mcp-server', version: '3.0.0' });
+				res.status(200).json({ name: SERVER_NAME, version: SERVER_VERSION });
 				return;
 			}
 
