@@ -54,16 +54,33 @@ if (existingTokens) {
 
 const sync = new WhoopSync(client, db);
 
-const SESSION_TTL_MS = 30 * 60 * 1000;
+// Session TTL controls how long an idle MCP session stays in the transports Map.
+// 30 minutes (the original default) was too aggressive: client tokens managed by
+// Anthropic's mcp-proxy do not auto-refresh on expiry, so when the server evicted
+// a session the client had no recovery path except manual "Refresh tools list".
+// 24 hours covers a typical day of idle gaps without artificially killing sessions.
+// Memory cost is negligible at single-user scale.
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 const transports = new Map<string, { transport: StreamableHTTPServerTransport; lastAccess: number }>();
 
 function cleanupStaleSessions(): void {
 	const now = Date.now();
+	const evicted: string[] = [];
 	for (const [sessionId, session] of transports) {
 		if (now - session.lastAccess > SESSION_TTL_MS) {
 			session.transport.close().catch(() => {});
 			transports.delete(sessionId);
+			evicted.push(sessionId.slice(0, 8));
 		}
+	}
+	if (evicted.length > 0) {
+		console.log(JSON.stringify({
+			event: 'session_eviction',
+			timestamp: new Date().toISOString(),
+			evictedCount: evicted.length,
+			evicted,
+			remainingSessions: transports.size,
+		}));
 	}
 }
 
@@ -583,11 +600,21 @@ async function main(): Promise<void> {
 
 		app.all('/mcp', async (req: Request, res: Response) => {
 			const sessionId = req.headers['mcp-session-id'] as string | undefined;
+			const requestStart = Date.now();
 
 			if (req.method === 'DELETE' && sessionId && transports.has(sessionId)) {
 				const session = transports.get(sessionId)!;
 				await session.transport.close();
 				transports.delete(sessionId);
+				console.log(JSON.stringify({
+					event: 'mcp_request',
+					timestamp: new Date().toISOString(),
+					method: 'DELETE',
+					sessionIdPrefix: sessionId.slice(0, 8),
+					action: 'session_closed',
+					activeSessions: transports.size,
+					durationMs: Date.now() - requestStart,
+				}));
 				res.status(200).send('Session closed');
 				return;
 			}
@@ -598,12 +625,63 @@ async function main(): Promise<void> {
 			}
 
 			if (req.method === 'POST') {
-				let transport: StreamableHTTPServerTransport;
+				// Buffer the raw body so we can inspect it AND pass it to the transport.
+				// The transport reads the body as a stream; without buffering we cannot
+				// look at the JSON-RPC method before deciding how to route the request.
+				const chunks: Buffer[] = [];
+				for await (const chunk of req) {
+					chunks.push(chunk as Buffer);
+				}
+				const rawBody = Buffer.concat(chunks);
 
-				if (sessionId && transports.has(sessionId)) {
+				let parsedBody: { method?: string; id?: string | number | null } | null = null;
+				try {
+					parsedBody = JSON.parse(rawBody.toString('utf8')) as typeof parsedBody;
+				} catch {
+					parsedBody = null;
+				}
+
+				const isInitializeRequest = parsedBody?.method === 'initialize';
+				const sessionKnown = sessionId ? transports.has(sessionId) : false;
+				const bodyMethod = parsedBody?.method ?? null;
+
+				// Reject non-initialize requests with unknown session IDs cleanly.
+				// HTTP 404 per MCP spec signals "session not found" so a compliant
+				// client should re-issue initialize and retry. HTTP 400 (the old
+				// behaviour, returned by SDK's "Server not initialized" error) does
+				// not tell the client to recover.
+				if (sessionId && !sessionKnown && !isInitializeRequest) {
+					console.log(JSON.stringify({
+						event: 'mcp_request',
+						timestamp: new Date().toISOString(),
+						method: 'POST',
+						sessionIdPrefix: sessionId.slice(0, 8),
+						sessionKnown: false,
+						bodyMethod,
+						action: 'rejected_unknown_session',
+						httpStatus: 404,
+						activeSessions: transports.size,
+						durationMs: Date.now() - requestStart,
+					}));
+					res.status(404).json({
+						jsonrpc: '2.0',
+						error: {
+							code: -32001,
+							message: 'Session not found. Please reinitialize.',
+						},
+						id: parsedBody?.id ?? null,
+					});
+					return;
+				}
+
+				let transport: StreamableHTTPServerTransport;
+				let action: string;
+
+				if (sessionId && sessionKnown) {
 					const session = transports.get(sessionId)!;
 					session.lastAccess = Date.now();
 					transport = session.transport;
+					action = 'reused_session';
 				} else {
 					const newSessionId = randomUUID();
 					transport = new StreamableHTTPServerTransport({
@@ -616,7 +694,28 @@ async function main(): Promise<void> {
 					const server = createMcpServer();
 					await server.connect(transport);
 					transports.set(newSessionId, { transport, lastAccess: Date.now() });
+					action = isInitializeRequest ? 'new_session_initialize' : 'new_session_implicit';
 				}
+
+				// Replay the buffered body back onto req so the transport can consume it.
+				// The transport reads req as a stream; we already consumed it above.
+				const { Readable } = await import('node:stream');
+				const replayStream = Readable.from([rawBody]);
+				Object.assign(req, replayStream);
+				(req as unknown as { readable: boolean }).readable = true;
+
+				console.log(JSON.stringify({
+					event: 'mcp_request',
+					timestamp: new Date().toISOString(),
+					method: 'POST',
+					sessionIdPrefix: sessionId ? sessionId.slice(0, 8) : null,
+					sessionKnown,
+					bodyMethod,
+					isInitialize: isInitializeRequest,
+					action,
+					activeSessions: transports.size,
+					durationMs: Date.now() - requestStart,
+				}));
 
 				await transport.handleRequest(req, res);
 				return;
