@@ -1,12 +1,15 @@
 {
   "name": "whoop-mcp-server",
-  "version": "1.0.0",
-  "description": "MCP server for Whoop health data integration",
-  "author": "Yuri Dvoinos",
+  "version": "3.1.2",
+  "description": "MCP server for Whoop health data integration. Raw JSON passthrough architecture.",
+  "author": "tagsvc",
+  "contributors": [
+    "Yuri Dvoinos (original author)"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yuridivonis/whoop-mcp-server"
+    "url": "https://github.com/tagsvc/whoop-mcp-server"
   },
   "keywords": [
     "mcp",
