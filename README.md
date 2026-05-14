@@ -4,7 +4,7 @@ A Model Context Protocol (MCP) server that connects your Whoop health data to Cl
 
 Built using the [Whoop Developer API v2](https://developer.whoop.com/docs/introduction). Forked from [yuridivonis/whoop-mcp-server](https://github.com/yuridivonis/whoop-mcp-server) and extended to full v2 API parity.
 
-**Current version: 3.1.2**
+**Current version: 3.1.3**
 
 ## Architecture
 
@@ -157,10 +157,16 @@ This fork extends the original six-tool implementation with:
 - Nine additional tools covering workouts, profile, body measurement, detail lookups, cycle-linked queries, and token revocation
 - Database schema additions: workout distance and altitude, sport name from API, sleep cycle count and disturbance count, user calibration flag, percent recorded
 - Express body parser fix that resolved a 400 error blocking the MCP handshake
-- Streamable HTTP session handling refinement
+- Streamable HTTP session handling refinement (v3.1.3): 24-hour idle TTL, 404 with MCP error code on unknown session, structured logging for session lifecycle events
 - Raw JSON passthrough architecture (v3.1.x): removed markdown formatters from tool layer, removed narrow projections from trend query layer, server now returns complete data on every call
 
 ## Version history
+
+**3.1.3** (May 14, 2026)
+- Fixed session expiration friction. Idle MCP sessions previously expired after 30 minutes, requiring manual "Refresh tools list" in connector settings to recover. Session TTL extended to 24 hours.
+- Route handler now returns HTTP 404 with MCP spec error code -32001 when a non-initialize request arrives with an unknown session ID, instead of the SDK's default 400 "Server not initialized" response. The 404 signals "session not found, please reinitialize" so a compliant client can recover transparently.
+- Body buffering added to `/mcp` POST handler so the route can inspect the JSON-RPC method before deciding response path while still passing the raw body through to the transport.
+- Structured JSON logging added for `/mcp` requests and session evictions. Captures timestamps, session ID prefixes, JSON-RPC methods, action taken, active session count, and request duration. Available in Railway Deploy Logs.
 
 **3.1.2** (May 13, 2026)
 - Fixed version reporting bug. Server now sources version from `package.json` at startup via a single constant. Both the MCP handshake response and the GET `/mcp` health check now report the same accurate version.
