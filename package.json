@@ -26,9 +26,9 @@
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.11.0",
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "better-sqlite3": "^11.6.0",
-    "express": "^4.21.0"
+    "express": "^4.22.3"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.11",
